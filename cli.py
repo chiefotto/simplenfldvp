@@ -16,6 +16,7 @@ from database.queries import (
     team_on_bye,
 )
 
+from database.matchups import METRIC_ALIASES
 from services.catalog import COMMANDS as SERVICE_COMMANDS
 from services.catalog import DEFAULT_TOP_N, POSITIONS
 from services.context import RequestContext
@@ -136,13 +137,15 @@ def unwrap(result):
     return result
 
 
-def show_opportunities(limit):
-    result = unwrap(get_top_weekly_opportunities(limit, context=CLI_CONTEXT))
+def show_opportunities(limit, metric=None):
+    result = unwrap(get_top_weekly_opportunities(limit, metric, context=CLI_CONTEXT))
     if result is None:
         return
     records = result["data"]
     week = result["meta"].get("week")
-    print(f"WEEK {week} - TOP MATCHUP OPPORTUNITIES")
+    stat = result["meta"].get("metric")
+    heading = f"TOP {stat} OPPORTUNITIES" if stat else "TOP MATCHUP OPPORTUNITIES"
+    print(f"WEEK {week} - {heading}")
     print(f"{'RANK':<6}{'OFFENSE':<10}{'DEFENSE':<10}{'POS':<5}{'METRIC':<18}{'VALUE':>10}{'Z':>8}{'DEF RANK':>10}  LABEL")
     for record in records[:limit]:
         print(
@@ -353,7 +356,7 @@ def split_team_position(tokens):
 
 def show_matchup(tokens):
     if not tokens:
-        print("matchup best | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
+        print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
         return
     mode, *rest = tokens
     if mode == "best":
@@ -365,6 +368,15 @@ def show_matchup(tokens):
                 print("matchup best 10")
                 return
             show_opportunities(int(rest[0]))
+            return
+        if rest[0].lower() in METRIC_ALIASES:
+            if len(rest) == 1:
+                show_opportunities(TOP_N, rest[0])
+                return
+            if len(rest) == 2 and rest[1].isdigit():
+                show_opportunities(int(rest[1]), rest[0])
+                return
+            print("matchup best receptions 10")
             return
         if len(rest) == 1:
             show_best(rest[0])
@@ -384,7 +396,7 @@ def show_matchup(tokens):
         else:
             show_offense_matchup(team, position)
         return
-    print("matchup best | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
+    print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
 
 
 def classify(tokens):

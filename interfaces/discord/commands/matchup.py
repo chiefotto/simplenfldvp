@@ -81,12 +81,17 @@ class Matchup(app_commands.Group):
         await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="opportunities", description="Rank the strongest individual stat vulnerabilities.")
-    @app_commands.describe(top="How many rows to show, from 1 to 32.")
+    @app_commands.describe(
+        metric="Optional stat. Limits the board to that stat across every position that has it.",
+        top="How many rows to show, from 1 to 32.",
+    )
+    @app_commands.choices(metric=METRIC_CHOICES)
     async def opportunities(
         self,
         interaction: discord.Interaction,
+        metric: str | None = None,
         top: app_commands.Range[int, 1, MAX_TOP_N] | None = None,
     ):
         await interaction.response.defer()
-        text = render_opportunities(top, self._context(interaction), get_top_weekly_opportunities)
+        text = render_opportunities(top, self._context(interaction), get_top_weekly_opportunities, metric)
         await interaction.followup.send(embeds=as_embeds(text))

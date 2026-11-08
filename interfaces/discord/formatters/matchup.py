@@ -89,21 +89,30 @@ def format_offense_matchup(result):
 
 def format_opportunities(result, top):
     records = result["data"][: normalize_top_n(top)]
+    metric = result.get("meta", {}).get("metric")
     blocks = []
     for record in records:
+        stat = record["position"].upper()
+        if not metric:
+            stat = f"{stat} {metric_name(record['metric'])}"
         blocks.append(
             "\n".join([
                 f"{record['weekly_rank']}. {matchup_name(record)}",
-                f"{record['position'].upper()} {metric_name(record['metric'])}",
+                stat,
                 f"Value: {record['metric_value']:.2f} | Z: {signed(record['z_score'])} | "
                 f"Def Rank: {record['defensive_metric_rank']} | {record['label']}",
             ])
         )
-    return base_embed(
-        f"Top Matchup Opportunities - Week {result['meta'].get('week')}",
-        "\n\n".join(blocks) if blocks else "No matchups.",
-        result.get("meta"),
-    )
+    if metric:
+        title = f"Top {metric_name(metric)} Opportunities - Week {result['meta'].get('week')}"
+        positions = ", ".join(position.upper() for position in result["meta"].get("positions", []))
+        intro = f"Positions: {positions}" if positions else ""
+    else:
+        title = f"Top Matchup Opportunities - Week {result['meta'].get('week')}"
+        intro = ""
+    body = "\n\n".join(blocks) if blocks else "No matchups."
+    description = f"{intro}\n\n{body}" if intro else body
+    return base_embed(title, description, result.get("meta"))
 
 
 def render_best_matchup(position, top, context, service):
@@ -134,8 +143,8 @@ def render_offense_matchup(team, position, context, service):
     )
 
 
-def render_opportunities(top, context, service):
+def render_opportunities(top, context, service, metric=None):
     return call_service(
-        lambda: service(top, context=context),
+        lambda: service(top, metric=metric, context=context),
         lambda result: format_opportunities(result, top),
     )

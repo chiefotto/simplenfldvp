@@ -9,8 +9,9 @@ MAX_TOP_N = 32
 COMMANDS = [
     {
         "name": "matchup best",
-        "description": "Rank the strongest individual defensive vulnerabilities on the slate. matchup best 10 changes the count.",
+        "description": "Rank the strongest individual defensive vulnerabilities on the slate. matchup best 10 changes the count. matchup best receptions ranks one stat across its positions. matchup best receptions 10 sets that count.",
         "parameters": [
+            {"name": "metric", "required": False, "description": "Optional stat alias. Limits the board to that stat across every position that has it."},
             {"name": "top", "required": False, "default": DEFAULT_TOP_N, "description": "How many rows to show, from 1 to 32."},
         ],
         "example": "matchup best",
@@ -159,6 +160,23 @@ def normalize_team(team):
             {"allowed": sorted(known)},
         )
     return abbr
+
+
+def normalize_metric_alias(metric):
+    key = str(metric).lower()
+    columns = {
+        name.lower(): name
+        for names in POSITION_METRICS.values()
+        for name in names
+    }
+    canonical = METRIC_ALIASES.get(key) or columns.get(key)
+    if canonical is None:
+        raise AppError(
+            "INVALID_METRIC",
+            f"Metric '{metric}' is not recognized.",
+            {"allowed": sorted(METRIC_ALIASES)},
+        )
+    return canonical
 
 
 def normalize_metric(position, metric):

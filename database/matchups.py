@@ -31,6 +31,7 @@ METRIC_ALIASES = {
     "passing_yards": "Passing_Yd",
     "passing_td": "Passing_TD",
     "targets": "Receiving_Targt",
+    "rushing_attempts": "Rushing_Att",
 }
 
 
@@ -186,6 +187,34 @@ def touchdown_opportunities(position=None):
         copied["touchdown_opportunity_score"] = copied["z_score"]
         records.append(copied)
     return _assign_ranks(records, "touchdown_opportunity_score", "weekly_rank")
+
+
+def canonical_metric(alias):
+    key = str(alias).lower()
+    if key in METRIC_ALIASES:
+        return METRIC_ALIASES[key]
+    columns = {
+        name.lower(): name
+        for names in POSITION_METRICS.values()
+        for name in names
+    }
+    if key in columns:
+        return columns[key]
+    raise ValueError(f"unknown metric {alias}")
+
+
+def positions_for_metric(metric):
+    return [position for position, names in POSITION_METRICS.items() if metric in names]
+
+
+def metric_opportunities(alias):
+    metric_name = canonical_metric(alias)
+    records = []
+    for record in rank_weekly_opportunities():
+        if record["metric"] != metric_name:
+            continue
+        records.append(dict(record))
+    return _assign_ranks(records, "opportunity_score", "weekly_rank")
 
 
 def rank_weekly_matchups(position):

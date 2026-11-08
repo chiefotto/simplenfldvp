@@ -57,6 +57,8 @@ These commands describe a position against a defense. They do not know snap shar
 
 `matchup best` scans every scheduled offense and every configured counting stat, then sorts by that one stat's existing z-score. The top row is the largest single outlier on the slate. `weekly_rank` is that slate order. `DEF RANK` is the defense's league rank for that stat. `matchup best 10` changes how many rows are shown. Fantasy points are not in this list.
 
+`matchup best receptions` keeps only that stat and includes every position configured for it. Receptions, targets, receiving yards, and receiving touchdowns include RB, WR, and TE. Rushing yards and rushing touchdowns include QB and RB. Passing yards and passing touchdowns are QB only. Rushing attempts are RB only. Each row still uses that position's own z-score, so a tight end at +2.90 can rank ahead of a wide receiver at +1.72 without comparing their raw receptions. `DEF RANK` stays the rank inside that position. `weekly_rank` is redone for the filtered list. `matchup best receptions 10` changes the count. The same form works for every alias.
+
 The configured stats are:
 
 - QB: passing yards, passing touchdowns, rushing yards, rushing touchdowns
@@ -65,7 +67,7 @@ The configured stats are:
 
 `matchup best wr` makes one row per offense. The score is the average of that position's configured z-scores. A missing stat is left out of the average. The result is not standardized again. The same form works for qb, rb, and te. The breakdown under the table is rank 1.
 
-`matchup best wr receptions` ranks one stat. Aliases are `receptions`, `receiving_yards`, `receiving_td`, `rushing_yards`, `rushing_td`, `passing_yards`, and `passing_td`. An alias that does not belong to the position is rejected.
+`matchup best wr receptions` ranks one stat for one position. Aliases are `receptions`, `targets`, `receiving_yards`, `receiving_td`, `rushing_yards`, `rushing_td`, `rushing_attempts`, `passing_yards`, and `passing_td`. An alias that does not belong to the position is rejected.
 
 `matchup defense det wr` prints Detroit's wide-receiver profile for the stored snapshot, including fantasy points, with no opponent. `matchup offense mia wr` finds Miami's opponent and prints the wide-receiver average plus the component stats.
 
@@ -90,6 +92,6 @@ python -m interfaces.discord.bot
 ```
 
 7. In the server, run `/system ping`. The reply is `Bot is online.`
-8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate.
+8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate. `/matchup opportunities` is the mixed board. `/matchup opportunities metric:receptions top:10` keeps receptions and includes every position configured for that stat.
 
 If `DISCORD_BOT_TOKEN` is missing, the process stops with `DISCORD_BOT_TOKEN is not configured.` The token is not written to the log.
