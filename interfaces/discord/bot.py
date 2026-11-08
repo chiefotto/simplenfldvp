@@ -6,6 +6,7 @@ from discord import app_commands
 import services  # noqa: F401  (configures logging)
 from interfaces.discord.commands.admin import Admin
 from interfaces.discord.commands.fantasy import Fantasy
+from interfaces.discord.commands.help import register_help
 from interfaces.discord.commands.matchup import Matchup
 from interfaces.discord.commands.system import System
 from interfaces.discord.config import load_config
@@ -22,8 +23,9 @@ class DvpBot(discord.Client):
     async def setup_hook(self):
         self.tree.add_command(System())
         self.tree.add_command(Matchup(self.config))
-        self.tree.add_command(Fantasy())
+        self.tree.add_command(Fantasy(self.config))
         self.tree.add_command(Admin(self.config))
+        register_help(self.tree)
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)
             self.tree.copy_global_to(guild=guild)

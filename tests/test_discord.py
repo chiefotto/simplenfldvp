@@ -6,8 +6,9 @@ from services.context import RequestContext
 
 from interfaces.discord.config import load_config
 from interfaces.discord.context import access_level_for, request_context
-from interfaces.discord.formatters.common import UNEXPECTED, format_service_error
-from interfaces.discord.formatters.matchup import render_best_matchup
+from interfaces.discord.formatters.common import MESSAGE_LIMIT, UNEXPECTED, format_service_error
+from interfaces.discord.formatters.help import format_help
+from interfaces.discord.formatters.matchup import format_opportunities, render_best_matchup
 
 
 class Role:
@@ -92,6 +93,32 @@ class ErrorTests(unittest.TestCase):
         text = render_best_matchup("wr", None, RequestContext(caller_id="5"), service)
         self.assertEqual(text, UNEXPECTED)
         self.assertNotIn("password", text)
+
+    def test_opportunity_line_names_both_sides(self):
+        text = format_opportunities({
+            "data": [{
+                "weekly_rank": 1,
+                "offense": "MIA",
+                "defense": "DET",
+                "position": "te",
+                "metric": "Receiving_TD",
+                "metric_value": 1.57,
+                "z_score": 3.23,
+                "defensive_metric_rank": 1,
+                "label": "HOT",
+            }],
+            "meta": {"week": 9},
+        }, 5)
+        self.assertIn("1. MIA offense vs DET defense - TE Receiving_TD", text)
+
+    def test_help_fits_and_explains_scores(self):
+        text = format_help()
+        self.assertLessEqual(len(text), MESSAGE_LIMIT)
+        self.assertIn("HOT", text)
+        self.assertIn("Weekly rank", text)
+        self.assertIn("/matchup best position:WR", text)
+        self.assertIn("/matchup opportunities", text)
+        self.assertIn("not player start or sit advice", text)
 
 
 if __name__ == "__main__":
