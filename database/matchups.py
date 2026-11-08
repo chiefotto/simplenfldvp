@@ -295,3 +295,27 @@ def get_offense_matchup(team, position):
     if not found:
         return {"bye": True, "offense": team, "position": position}
     return found[0]
+
+
+def _hot_spots(records, offense):
+    spots = [dict(record) for record in records if record["offense"] == offense and record["label"] == "HOT"]
+    spots.sort(key=lambda record: record["z_score"], reverse=True)
+    return spots
+
+
+def game_hot_spots(team):
+    team = team.upper()
+    if team_on_bye(team):
+        return {"bye": True, "offense": team}
+    pair = next((row for row in _weekly_sides().itertuples(index=False) if row.offense == team), None)
+    if pair is None:
+        return {"bye": True, "offense": team}
+    records = rank_weekly_opportunities()
+    return {
+        "offense": team,
+        "defense": pair.defense,
+        "sides": [
+            {"offense": team, "defense": pair.defense, "spots": _hot_spots(records, team)},
+            {"offense": pair.defense, "defense": team, "spots": _hot_spots(records, pair.defense)},
+        ],
+    }

@@ -71,6 +71,8 @@ The configured stats are:
 
 `matchup defense det wr` prints Detroit's wide-receiver profile for the stored snapshot, including fantasy points, with no opponent. `matchup offense mia wr` finds Miami's opponent and prints the wide-receiver average plus the component stats.
 
+`matchup game mia` finds Miami's game and lists the HOT spots for both offenses. HOT is the major defensive weakness already labeled on that position's own z-score. Miami's rows are the opponent's defense. The other section is the opponent's offense against Miami's defense. A side with no HOT row prints `No HOT spots.`
+
 `fantasy best` ranks every scheduled QB, RB, WR, and TE spot by the defense's fantasy points allowed. The score is the existing FPTS z-score for that position. Quarterback points are not compared with wide-receiver points until both have been standardized against their own 32-team group. The top 5 are the best fantasy matchups. `fantasy worst` reverses the sort, so rank 1 is the most difficult positional matchup and its defensive rank is usually near 32. `fantasy position wr` lists every scheduled offense at that position, from most favorable to least favorable. `fantasy offense det wr` finds Detroit's opponent and prints that defense's wide-receiver fantasy-points profile.
 
 `fantasy_score`, `matchup_score`, and `opportunity_score` are normalized defensive signals. They are not projections, probabilities, or player start/sit advice.
@@ -92,6 +94,6 @@ python -m interfaces.discord.bot
 ```
 
 7. In the server, run `/system ping`. The reply is `Bot is online.`
-8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate. `/matchup opportunities` is the mixed board. `/matchup opportunities metric:receptions top:10` keeps receptions and includes every position configured for that stat.
+8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate. `/matchup opportunities` is the mixed board. `/matchup opportunities metric:receptions top:10` keeps receptions and includes every position configured for that stat. `/matchup game team:MIA` lists the HOT spots for both offenses in Miami's game.
 
 If `DISCORD_BOT_TOKEN` is missing, the process stops with `DISCORD_BOT_TOKEN is not configured.` The token is not written to the log.

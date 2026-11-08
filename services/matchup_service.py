@@ -1,4 +1,5 @@
 from database.matchups import (
+    game_hot_spots,
     get_defense_profile as load_defense_profile,
     get_offense_matchup as load_offense_matchup,
     rank_weekly_matchups,
@@ -57,6 +58,20 @@ def get_offense_matchup(team, position, context=None):
         record = load_offense_matchup(abbr, pos)
         if record.get("bye"):
             _not_playing(abbr, meta)
+        return success(record, meta)
+
+    return respond(action)
+
+
+def get_game_hot_spots(team, context=None):
+    def action():
+        abbr = normalize_team(team)
+        meta = snapshot_meta()
+        record = game_hot_spots(abbr)
+        if record.get("bye"):
+            _not_playing(abbr, meta)
+        meta["offense"] = record["offense"]
+        meta["defense"] = record["defense"]
         return success(record, meta)
 
     return respond(action)

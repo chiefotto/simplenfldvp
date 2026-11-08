@@ -57,6 +57,15 @@ COMMANDS = [
         "access": "PUBLIC",
     },
     {
+        "name": "matchup game",
+        "description": "Show both offenses' HOT spots in one game.",
+        "parameters": [
+            {"name": "team", "required": True, "description": "Either team in the game."},
+        ],
+        "example": "matchup game mia",
+        "access": "PUBLIC",
+    },
+    {
         "name": "fantasy best",
         "description": "Show the most favorable FPTS-based positional matchups.",
         "parameters": [],

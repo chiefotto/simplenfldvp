@@ -14,6 +14,7 @@ SLASH_EXAMPLES = {
     "matchup best metric": "/matchup metric position:WR metric:receptions",
     "matchup defense": "/matchup defense team:DET position:WR",
     "matchup offense": "/matchup offense team:MIA position:WR",
+    "matchup game": "/matchup game team:MIA",
     "fantasy best": "/fantasy best",
     "fantasy worst": "/fantasy worst",
     "fantasy position": "/fantasy position position:WR",

@@ -115,6 +115,37 @@ def format_opportunities(result, top):
     return base_embed(title, description, result.get("meta"))
 
 
+def format_game(result):
+    game = result["data"]
+    sections = []
+    for side in game["sides"]:
+        header = f"{side['offense']} offense vs {side['defense']} defense"
+        if not side["spots"]:
+            sections.append(f"{header}\nNo HOT spots.")
+            continue
+        blocks = [
+            "\n".join([
+                f"{spot['position'].upper()} {metric_name(spot['metric'])}",
+                f"Value: {spot['metric_value']:.2f} | Z: {signed(spot['z_score'])} | "
+                f"Def Rank: {spot['defensive_metric_rank']} | {spot['label']}",
+            ])
+            for spot in side["spots"]
+        ]
+        sections.append(header + "\n\n" + "\n\n".join(blocks))
+    return base_embed(
+        f"{game['offense']} vs {game['defense']} - Week {result['meta'].get('week')}",
+        "\n\n".join(sections),
+        result.get("meta"),
+    )
+
+
+def render_game(team, context, service):
+    return call_service(
+        lambda: service(team, context=context),
+        format_game,
+    )
+
+
 def render_best_matchup(position, top, context, service):
     return call_service(
         lambda: service(position, context=context),

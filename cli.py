@@ -30,6 +30,7 @@ from services.matchup_service import (
     get_best_metric_matchups,
     get_best_position_matchups,
     get_defense_profile,
+    get_game_hot_spots,
     get_offense_matchup,
 )
 from services.opportunity_service import get_top_weekly_opportunities
@@ -233,6 +234,30 @@ def show_defense_profile(team, position):
     print_metrics(profile["metrics"])
 
 
+def show_game(team):
+    result = unwrap(get_game_hot_spots(team, context=CLI_CONTEXT))
+    if result is None:
+        return
+    game = result["data"]
+    week = result["meta"].get("week")
+    print(f"WEEK {week} - {game['offense']} vs {game['defense']}")
+    for side in game["sides"]:
+        print()
+        print(f"{side['offense']} offense vs {side['defense']} defense")
+        if not side["spots"]:
+            print("No HOT spots.")
+            continue
+        for spot in side["spots"]:
+            print(
+                f"{spot['position'].upper():<5}"
+                f"{spot['metric']:<18}"
+                f"{spot['metric_value']:>10.2f}"
+                f"{signed(spot['z_score']):>8}"
+                f"{spot['defensive_metric_rank']:>10}  "
+                f"{spot['label']}"
+            )
+
+
 def show_offense_matchup(team, position):
     result = unwrap(get_offense_matchup(team, position, context=CLI_CONTEXT))
     if result is None:
@@ -356,7 +381,7 @@ def split_team_position(tokens):
 
 def show_matchup(tokens):
     if not tokens:
-        print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
+        print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia")
         return
     mode, *rest = tokens
     if mode == "best":
@@ -396,7 +421,13 @@ def show_matchup(tokens):
         else:
             show_offense_matchup(team, position)
         return
-    print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr")
+    if mode == "game":
+        if len(rest) != 1:
+            print("matchup game mia")
+            return
+        show_game(rest[0])
+        return
+    print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia")
 
 
 def classify(tokens):

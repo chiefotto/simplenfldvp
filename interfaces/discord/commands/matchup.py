@@ -7,6 +7,7 @@ from services.matchup_service import (
     get_best_metric_matchups,
     get_best_position_matchups,
     get_defense_profile,
+    get_game_hot_spots,
     get_offense_matchup,
 )
 from services.opportunity_service import get_top_weekly_opportunities
@@ -16,6 +17,7 @@ from interfaces.discord.formatters.common import as_embeds
 from interfaces.discord.formatters.matchup import (
     render_best_matchup,
     render_defense_profile,
+    render_game,
     render_metric_matchup,
     render_offense_matchup,
     render_opportunities,
@@ -78,6 +80,13 @@ class Matchup(app_commands.Group):
     async def offense(self, interaction: discord.Interaction, team: str, position: str):
         await interaction.response.defer()
         text = render_offense_matchup(team, position, self._context(interaction), get_offense_matchup)
+        await interaction.followup.send(embeds=as_embeds(text))
+
+    @app_commands.command(name="game", description="Show both offenses' HOT spots in one game.")
+    @app_commands.describe(team="Either team in the game.")
+    async def game(self, interaction: discord.Interaction, team: str):
+        await interaction.response.defer()
+        text = render_game(team, self._context(interaction), get_game_hot_spots)
         await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="opportunities", description="Rank the strongest individual stat vulnerabilities.")
