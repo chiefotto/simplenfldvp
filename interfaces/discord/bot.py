@@ -9,6 +9,7 @@ from interfaces.discord.commands.fantasy import Fantasy
 from interfaces.discord.commands.help import register_help
 from interfaces.discord.commands.matchup import Matchup
 from interfaces.discord.commands.system import System
+from interfaces.discord.commands.touchdown import Touchdown
 from interfaces.discord.config import load_config
 
 logger = logging.getLogger("interfaces.discord")
@@ -25,6 +26,7 @@ class DvpBot(discord.Client):
         self.tree.add_command(Matchup(self.config))
         self.tree.add_command(Fantasy(self.config))
         self.tree.add_command(Admin(self.config))
+        self.tree.add_command(Touchdown(self.config))
         register_help(self.tree)
         if self.config.guild_id:
             guild = discord.Object(id=self.config.guild_id)

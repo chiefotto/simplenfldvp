@@ -15,6 +15,13 @@ POSITION_METRICS = {
     "te": ["Receiving_Targt", "Receiving_Recpt", "Receiving_Yd", "Receiving_TD"],
 }
 
+TOUCHDOWN_METRICS = {
+    "qb": ["Passing_TD", "Rushing_TD"],
+    "rb": ["Rushing_TD", "Receiving_TD"],
+    "wr": ["Receiving_TD"],
+    "te": ["Receiving_TD"],
+}
+
 METRIC_ALIASES = {
     "receptions": "Receiving_Recpt",
     "receiving_yards": "Receiving_Yd",
@@ -161,6 +168,24 @@ def rank_weekly_opportunities():
                     "note": note,
                 })
     return _assign_ranks(records, "opportunity_score", "weekly_rank")
+
+
+def touchdown_opportunities(position=None):
+    allowed = {
+        (pos, metric)
+        for pos, metrics in TOUCHDOWN_METRICS.items()
+        for metric in metrics
+        if position is None or pos == position
+    }
+    records = []
+    for record in rank_weekly_opportunities():
+        if (record["position"], record["metric"]) not in allowed:
+            continue
+        copied = dict(record)
+        copied["td_type"] = copied["metric"]
+        copied["touchdown_opportunity_score"] = copied["z_score"]
+        records.append(copied)
+    return _assign_ranks(records, "touchdown_opportunity_score", "weekly_rank")
 
 
 def rank_weekly_matchups(position):

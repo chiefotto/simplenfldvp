@@ -3,13 +3,13 @@ from services.catalog import COMMANDS
 from interfaces.discord.formatters.common import fit_message
 
 NOTES = """How to read a result
-A higher positive score means the opposing defense allows more than the league average, so the offensive matchup is more favorable. A negative score means that defense is stronger than average. Scores use all 32 defenses. The schedule only decides which offense faces that defense.
+A higher positive score means the defense allows more than the league average. A negative score means a stronger defense. Scores use all 32 defenses. The schedule only decides which offense faces that defense.
 
 HOT is a major defensive weakness. WARM is above-average weakness. NEUTRAL is near the league average. COOL is above-average strength. COLD is a major strength.
 
-Defensive rank compares that defense with the whole NFL for one position and metric. Rank 1 is the weakest defense for that stat. Weekly rank only orders the offenses on this week's slate.
+Defensive rank is the league rank for one position and metric. Rank 1 is the weakest defense. Weekly rank only orders this week's offenses.
 
-Fantasy commands use fantasy points allowed by position. They are not player start or sit advice.
+Fantasy commands are not player start or sit advice. Touchdown commands are not a player touchdown probability.
 
 """
 
@@ -23,6 +23,9 @@ SLASH_EXAMPLES = {
     "fantasy worst": "/fantasy worst",
     "fantasy position": "/fantasy position position:WR",
     "fantasy offense": "/fantasy offense team:DET position:WR",
+    "touchdown best": "/touchdown best",
+    "touchdown offense": "/touchdown offense team:MIA",
+    "touchdown passing": "/touchdown passing",
     "admin update": "/admin update",
 }
 

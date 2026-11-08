@@ -89,6 +89,34 @@ COMMANDS = [
         "access": "PUBLIC",
     },
     {
+        "name": "touchdown best",
+        "description": "Rank individual touchdown matchups across the slate.",
+        "parameters": [
+            {"name": "position", "required": False, "description": "Optional qb, rb, wr, or te filter."},
+            {"name": "top", "required": False, "default": DEFAULT_TOP_N, "description": "How many rows to show, from 1 to 32."},
+        ],
+        "example": "touchdown best",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "touchdown offense",
+        "description": "Show one offense's touchdown matchups against its opponent defense.",
+        "parameters": [
+            {"name": "team", "required": True, "description": "Offense abbreviation."},
+        ],
+        "example": "touchdown offense mia",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "touchdown passing",
+        "description": "Rank only QB passing-touchdown matchups.",
+        "parameters": [
+            {"name": "top", "required": False, "default": DEFAULT_TOP_N, "description": "How many rows to show, from 1 to 32."},
+        ],
+        "example": "touchdown passing",
+        "access": "PUBLIC",
+    },
+    {
         "name": "admin update",
         "description": "Download the latest completed defense snapshot and schedule.",
         "parameters": [],
