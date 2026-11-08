@@ -12,6 +12,7 @@ from services.matchup_service import (
 from services.opportunity_service import get_top_weekly_opportunities
 
 from interfaces.discord.context import request_context
+from interfaces.discord.formatters.common import as_embeds
 from interfaces.discord.formatters.matchup import (
     render_best_matchup,
     render_defense_profile,
@@ -43,7 +44,7 @@ class Matchup(app_commands.Group):
     ):
         await interaction.response.defer()
         text = render_best_matchup(position, top, self._context(interaction), get_best_position_matchups)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="metric", description="Rank offenses by one stat's league z-score.")
     @app_commands.describe(
@@ -61,7 +62,7 @@ class Matchup(app_commands.Group):
     ):
         await interaction.response.defer()
         text = render_metric_matchup(position, metric, top, self._context(interaction), get_best_metric_matchups)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="defense", description="Show how a defense performs against a position.")
     @app_commands.describe(team="Defense abbreviation.", position="qb, rb, wr, or te")
@@ -69,7 +70,7 @@ class Matchup(app_commands.Group):
     async def defense(self, interaction: discord.Interaction, team: str, position: str):
         await interaction.response.defer()
         text = render_defense_profile(team, position, self._context(interaction), get_defense_profile)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="offense", description="Show an offense's matchup against its opponent.")
     @app_commands.describe(team="Offense abbreviation.", position="qb, rb, wr, or te")
@@ -77,7 +78,7 @@ class Matchup(app_commands.Group):
     async def offense(self, interaction: discord.Interaction, team: str, position: str):
         await interaction.response.defer()
         text = render_offense_matchup(team, position, self._context(interaction), get_offense_matchup)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="opportunities", description="Rank the strongest individual stat vulnerabilities.")
     @app_commands.describe(top="How many rows to show, from 1 to 32.")
@@ -88,4 +89,4 @@ class Matchup(app_commands.Group):
     ):
         await interaction.response.defer()
         text = render_opportunities(top, self._context(interaction), get_top_weekly_opportunities)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))

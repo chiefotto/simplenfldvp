@@ -1,50 +1,45 @@
-from interfaces.discord.formatters.common import call_service, signed
+from interfaces.discord.formatters.common import (
+    base_embed,
+    call_service,
+    matchup_name,
+    metric_name,
+    signed,
+)
 
 
-def _heading(result, title):
+def _touchdown_block(record, ranked=True):
     lines = []
-    note = result.get("meta", {}).get("note")
-    if note:
-        lines.append(note)
-    lines.append(title)
-    return lines
-
-
-def _pair(record):
-    return f"{record['offense']} offense vs {record['defense']} defense"
-
-
-def _td_line(record, ranked=True):
-    body = (
-        f"{record['position'].upper()} {record['td_type']} "
-        f"{record['metric_value']:.2f}, z {signed(record['z_score'])}, "
-        f"DEF RANK {record['defensive_metric_rank']}, {record['label']}"
+    if ranked:
+        lines.append(f"{record['weekly_rank']}. {matchup_name(record)}")
+    lines.append(f"{record['position'].upper()} {metric_name(record['td_type'])}")
+    lines.append(
+        f"Value: {record['metric_value']:.2f} | Z: {signed(record['z_score'])} | "
+        f"Def Rank: {record['defensive_metric_rank']} | {record['label']}"
     )
-    if not ranked:
-        return body
-    return f"{record['weekly_rank']}. {_pair(record)} - {body}"
+    return "\n".join(lines)
 
 
 def format_touchdowns(result):
     records = result["data"]
     position = result["meta"].get("position")
-    scope = f"{position.upper()} " if position else ""
-    lines = _heading(result, f"Best {scope}Touchdown Matchups - Week {result['meta'].get('week')}")
-    for record in records:
-        lines.append(_td_line(record))
-    if not records:
-        lines.append("No matchups.")
-    return "\n".join(lines)
+    scope = f"{str(position).upper()} " if position else ""
+    blocks = [_touchdown_block(record) for record in records]
+    return base_embed(
+        f"Best {scope}Touchdown Matchups - Week {result['meta'].get('week')}",
+        "\n\n".join(blocks) if blocks else "No matchups.",
+        result.get("meta"),
+    )
 
 
 def format_touchdown_offense(result):
     records = result["data"]
     first = records[0]
-    lines = _heading(result, f"{first['offense']} OFFENSE")
-    lines.append(f"Opponent Defense: {first['defense']}")
-    for record in records:
-        lines.append(_td_line(record, ranked=False))
-    return "\n".join(lines)
+    blocks = [_touchdown_block(record, ranked=False) for record in records]
+    return base_embed(
+        f"{first['offense']} Offense vs {first['defense']} Defense",
+        "\n\n".join(blocks),
+        result.get("meta"),
+    )
 
 
 def render_touchdowns(position, top, context, service):

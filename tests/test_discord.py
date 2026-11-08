@@ -6,7 +6,7 @@ from services.context import RequestContext
 
 from interfaces.discord.config import load_config
 from interfaces.discord.context import access_level_for, request_context
-from interfaces.discord.formatters.common import MESSAGE_LIMIT, UNEXPECTED, format_service_error
+from interfaces.discord.formatters.common import UNEXPECTED, format_service_error
 from interfaces.discord.formatters.help import format_help
 from interfaces.discord.formatters.matchup import format_opportunities, render_best_matchup
 
@@ -52,13 +52,14 @@ class ContextTests(unittest.TestCase):
 
 class ErrorTests(unittest.TestCase):
     def test_service_message_is_shown(self):
-        message = format_service_error({"code": "INVALID_POSITION", "message": "Position 'CB' is not valid."})
-        self.assertEqual(message, "Position 'CB' is not valid.")
+        embed = format_service_error({"code": "INVALID_POSITION", "message": "Position 'CB' is not valid."})
+        self.assertEqual(embed.title, "Invalid Position")
+        self.assertEqual(embed.description, "Position 'CB' is not valid.")
 
     def test_internal_error_is_generic(self):
-        message = format_service_error({"code": "INTERNAL_ERROR", "message": "secret traceback"})
-        self.assertEqual(message, UNEXPECTED)
-        self.assertNotIn("traceback", message)
+        embed = format_service_error({"code": "INTERNAL_ERROR", "message": "secret traceback"})
+        self.assertEqual(embed.description, UNEXPECTED)
+        self.assertNotIn("traceback", embed.description)
 
     def test_render_uses_mocked_service(self):
         def service(position, context=None):
@@ -71,31 +72,34 @@ class ErrorTests(unittest.TestCase):
                     "offense": "MIA",
                     "defense": "DET",
                     "matchup_score": 1.42,
+                    "metrics": [],
                 }],
                 "meta": {"week": 10, "position": "wr"},
             }
 
-        text = render_best_matchup("wr", 1, RequestContext(interface="discord", caller_id="5"), service)
-        self.assertIn("Best WR Matchups - Week 10", text)
-        self.assertIn("1. MIA offense vs DET defense - +1.42", text)
+        embed = render_best_matchup("wr", 1, RequestContext(interface="discord", caller_id="5"), service)
+        self.assertEqual(embed.title, "Best WR Matchups - Week 10")
+        self.assertIn("1. MIA offense vs DET defense", embed.description)
+        self.assertIn("+1.42", embed.description)
 
     def test_render_shows_service_error(self):
         def service(position, context=None):
             return {"success": False, "error": {"code": "INVALID_TEAM", "message": "Team 'DTT' was not recognized."}}
 
-        text = render_best_matchup("wr", None, RequestContext(caller_id="5"), service)
-        self.assertEqual(text, "Team 'DTT' was not recognized.")
+        embed = render_best_matchup("wr", None, RequestContext(caller_id="5"), service)
+        self.assertEqual(embed.title, "Invalid Team")
+        self.assertEqual(embed.description, "Team 'DTT' was not recognized.")
 
     def test_render_hides_unexpected_exception(self):
         def service(position, context=None):
             raise RuntimeError("database password")
 
-        text = render_best_matchup("wr", None, RequestContext(caller_id="5"), service)
-        self.assertEqual(text, UNEXPECTED)
-        self.assertNotIn("password", text)
+        embed = render_best_matchup("wr", None, RequestContext(caller_id="5"), service)
+        self.assertEqual(embed.description, UNEXPECTED)
+        self.assertNotIn("password", embed.description)
 
     def test_opportunity_line_names_both_sides(self):
-        text = format_opportunities({
+        embed = format_opportunities({
             "data": [{
                 "weekly_rank": 1,
                 "offense": "MIA",
@@ -109,11 +113,15 @@ class ErrorTests(unittest.TestCase):
             }],
             "meta": {"week": 9},
         }, 5)
-        self.assertIn("1. MIA offense vs DET defense - TE Receiving_TD", text)
+        self.assertIn("1. MIA offense vs DET defense", embed.description)
+        self.assertIn("TE Receiving TD", embed.description)
 
     def test_help_fits_and_explains_scores(self):
-        text = format_help()
-        self.assertLessEqual(len(text), MESSAGE_LIMIT)
+        embeds = format_help()
+        self.assertEqual([embed.title for embed in embeds], ["Matchup", "Fantasy", "Touchdown", "Admin"])
+        text = "\n".join(embed.description for embed in embeds)
+        for embed in embeds:
+            self.assertLessEqual(len(embed.description), 4096)
         self.assertIn("HOT", text)
         self.assertIn("Weekly rank", text)
         self.assertIn("/matchup best position:WR", text)

@@ -10,6 +10,7 @@ from services.fantasy_service import (
 )
 
 from interfaces.discord.context import request_context
+from interfaces.discord.formatters.common import as_embeds
 from interfaces.discord.formatters.fantasy import (
     render_fantasy_best,
     render_fantasy_offense,
@@ -37,7 +38,7 @@ class Fantasy(app_commands.Group):
     ):
         await interaction.response.defer()
         text = render_fantasy_best(top, self._context(interaction), get_best_fantasy_matchups)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="worst", description="Show the least favorable FPTS positional matchups.")
     @app_commands.describe(top="How many rows to show, from 1 to 32.")
@@ -48,7 +49,7 @@ class Fantasy(app_commands.Group):
     ):
         await interaction.response.defer()
         text = render_fantasy_worst(top, self._context(interaction), get_worst_fantasy_matchups)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="position", description="Rank scheduled offenses for one fantasy position.")
     @app_commands.describe(position="qb, rb, wr, or te")
@@ -56,7 +57,7 @@ class Fantasy(app_commands.Group):
     async def position(self, interaction: discord.Interaction, position: str):
         await interaction.response.defer()
         text = render_fantasy_position(position, self._context(interaction), get_fantasy_position_rankings)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="offense", description="Show one offense's FPTS matchup against its opponent.")
     @app_commands.describe(team="Offense abbreviation.", position="qb, rb, wr, or te")
@@ -64,4 +65,4 @@ class Fantasy(app_commands.Group):
     async def offense(self, interaction: discord.Interaction, team: str, position: str):
         await interaction.response.defer()
         text = render_fantasy_offense(team, position, self._context(interaction), get_fantasy_offense_matchup)
-        await interaction.followup.send(text)
+        await interaction.followup.send(embeds=as_embeds(text))

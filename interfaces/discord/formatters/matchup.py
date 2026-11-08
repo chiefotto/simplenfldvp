@@ -1,97 +1,109 @@
 from services.catalog import normalize_top_n
 
-from interfaces.discord.formatters.common import call_service, signed
+from interfaces.discord.formatters.common import (
+    base_embed,
+    call_service,
+    highlight_metrics,
+    matchup_name,
+    metric_name,
+    signed,
+)
 
 
-def _heading(result, title):
-    lines = []
-    note = result.get("meta", {}).get("note")
-    if note:
-        lines.append(note)
-    lines.append(title)
-    return lines
+def _signal(value, label):
+    return f"{signed(value)} | {label}"
 
 
-def _pair(record):
-    return f"{record['offense']} offense vs {record['defense']} defense"
-
-
-def _metric_line(metric):
-    return (
-        f"{metric['metric']} {metric['metric_value']:.2f} "
-        f"z {signed(metric['z_score'])} rank {metric['rank']} {metric['label']}"
-    )
+def _metric_summary(metric):
+    return f"{metric_name(metric['metric'])}: {_signal(metric['z_score'], metric['label'])}"
 
 
 def format_best_matchups(result, top):
-    count = normalize_top_n(top)
-    records = result["data"][:count]
+    records = result["data"][: normalize_top_n(top)]
     position = str(result["meta"].get("position", "")).upper()
-    lines = _heading(result, f"Best {position} Matchups - Week {result['meta'].get('week')}")
+    blocks = []
     for record in records:
-        lines.append(f"{record['matchup_rank']}. {_pair(record)} - {signed(record['matchup_score'])}")
-    if len(lines) == 1 or (result.get("meta", {}).get("note") and len(lines) == 2):
-        lines.append("No matchups.")
-    return "\n".join(lines)
+        lines = [
+            f"{record['matchup_rank']}. {matchup_name(record)}",
+            f"{position} Matchup Score: {signed(record['matchup_score'])}",
+        ]
+        lines.extend(_metric_summary(metric) for metric in highlight_metrics(record.get("metrics")))
+        blocks.append("\n".join(lines))
+    description = "\n\n".join(blocks) if blocks else "No matchups."
+    return base_embed(f"Best {position} Matchups - Week {result['meta'].get('week')}", description, result.get("meta"))
 
 
-def format_metric_matchups(result, top):
-    count = normalize_top_n(top)
-    records = result["data"][:count]
+def format_metric_matchups(result, top, title=None):
+    records = result["data"][: normalize_top_n(top)]
     position = str(result["meta"].get("position", "")).upper()
-    metric = result["meta"].get("metric", "")
-    lines = _heading(result, f"{position} {metric} - Week {result['meta'].get('week')}")
+    metric = metric_name(result["meta"].get("metric", ""))
+    blocks = []
     for record in records:
-        lines.append(
-            f"{record['matchup_rank']}. {_pair(record)} - "
-            f"{record['metric_value']:.2f}, z {signed(record['z_score'])}, "
-            f"DEF RANK {record['league_rank']}, {record['label']}"
+        blocks.append(
+            "\n".join([
+                f"{record['matchup_rank']}. {matchup_name(record)}",
+                f"{position} {metric}",
+                f"Value: {record['metric_value']:.2f} | Z: {signed(record['z_score'])} | "
+                f"Def Rank: {record['league_rank']} | {record['label']}",
+            ])
         )
-    if not records:
-        lines.append("No matchups.")
-    return "\n".join(lines)
+    heading = title or f"{position} {metric} - Week {result['meta'].get('week')}"
+    if title:
+        heading = f"{title} - Week {result['meta'].get('week')}"
+    return base_embed(heading, "\n\n".join(blocks) if blocks else "No matchups.", result.get("meta"))
 
 
 def format_defense_profile(result):
     profile = result["data"]
-    lines = _heading(
-        result,
-        f"{profile['team']} DEFENSE VS {profile['position'].upper()}",
+    embed = base_embed(
+        f"{profile['team']} Defense vs {profile['position'].upper()}",
+        "",
+        result.get("meta"),
     )
-    lines.append(f"Snapshot: {profile['season']} Week {profile['week']}")
     for metric in profile["metrics"]:
-        lines.append(_metric_line(metric))
-    return "\n".join(lines)
+        embed.add_field(
+            name=metric_name(metric["metric"])[:256],
+            value=(
+                f"Value: {metric['metric_value']:.2f}\n"
+                f"Z: {signed(metric['z_score'])}\n"
+                f"Rank: {metric['rank']}\n"
+                f"Label: {metric['label']}"
+            )[:1024],
+            inline=True,
+        )
+    return embed
 
 
 def format_offense_matchup(result):
     record = result["data"]
-    lines = _heading(result, f"{record['offense']} OFFENSE")
-    lines.extend([
-        f"Opponent Defense: {record['defense']}",
-        f"Position: {record['position'].upper()}",
-        f"Week: {record['week']}",
-        f"Matchup Score: {signed(record['matchup_score'])}",
-    ])
-    for metric in record["metrics"]:
-        lines.append(_metric_line(metric))
-    return "\n".join(lines)
+    lines = [
+        f"{record['position'].upper()} Matchup Score: {signed(record['matchup_score'])}",
+    ]
+    lines.extend(_metric_summary(metric) for metric in highlight_metrics(record.get("metrics")))
+    return base_embed(
+        f"{record['offense']} Offense vs {record['defense']} Defense - {record['position'].upper()}",
+        "\n".join(lines),
+        result.get("meta"),
+    )
 
 
 def format_opportunities(result, top):
-    count = normalize_top_n(top)
-    records = result["data"][:count]
-    lines = _heading(result, f"Top Matchup Opportunities - Week {result['meta'].get('week')}")
+    records = result["data"][: normalize_top_n(top)]
+    blocks = []
     for record in records:
-        lines.append(
-            f"{record['weekly_rank']}. {_pair(record)} - "
-            f"{record['position'].upper()} {record['metric']} "
-            f"{record['metric_value']:.2f}, z {signed(record['z_score'])}, "
-            f"DEF RANK {record['defensive_metric_rank']}, {record['label']}"
+        blocks.append(
+            "\n".join([
+                f"{record['weekly_rank']}. {matchup_name(record)}",
+                f"{record['position'].upper()} {metric_name(record['metric'])}",
+                f"Value: {record['metric_value']:.2f} | Z: {signed(record['z_score'])} | "
+                f"Def Rank: {record['defensive_metric_rank']} | {record['label']}",
+            ])
         )
-    if not records:
-        lines.append("No matchups.")
-    return "\n".join(lines)
+    return base_embed(
+        f"Top Matchup Opportunities - Week {result['meta'].get('week')}",
+        "\n\n".join(blocks) if blocks else "No matchups.",
+        result.get("meta"),
+    )
 
 
 def render_best_matchup(position, top, context, service):
@@ -101,10 +113,10 @@ def render_best_matchup(position, top, context, service):
     )
 
 
-def render_metric_matchup(position, metric, top, context, service):
+def render_metric_matchup(position, metric, top, context, service, title=None):
     return call_service(
         lambda: service(position, metric, context=context),
-        lambda result: format_metric_matchups(result, top),
+        lambda result: format_metric_matchups(result, top, title),
     )
 
 
