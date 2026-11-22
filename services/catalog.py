@@ -58,11 +58,27 @@ COMMANDS = [
     },
     {
         "name": "matchup game",
-        "description": "Show both offenses' HOT spots in one game.",
+        "description": "Show both offenses' HOT and WARM spots in one game.",
         "parameters": [
             {"name": "team", "required": True, "description": "Either team in the game."},
         ],
         "example": "matchup game mia",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "matchup slate",
+        "description": "Show HOT and WARM spots for every game on the slate.",
+        "parameters": [],
+        "example": "matchup slate",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "matchup stats",
+        "description": "Rank every configured stat for one offense against its opponent.",
+        "parameters": [
+            {"name": "team", "required": True, "description": "Offense abbreviation."},
+        ],
+        "example": "matchup chi",
         "access": "PUBLIC",
     },
     {

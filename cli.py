@@ -32,6 +32,8 @@ from services.matchup_service import (
     get_defense_profile,
     get_game_hot_spots,
     get_offense_matchup,
+    get_slate_hot_spots,
+    get_offense_stat_rankings,
 )
 from services.opportunity_service import get_top_weekly_opportunities
 
@@ -234,18 +236,13 @@ def show_defense_profile(team, position):
     print_metrics(profile["metrics"])
 
 
-def show_game(team):
-    result = unwrap(get_game_hot_spots(team, context=CLI_CONTEXT))
-    if result is None:
-        return
-    game = result["data"]
-    week = result["meta"].get("week")
+def _print_game(game, week):
     print(f"WEEK {week} - {game['offense']} vs {game['defense']}")
     for side in game["sides"]:
         print()
         print(f"{side['offense']} offense vs {side['defense']} defense")
         if not side["spots"]:
-            print("No HOT spots.")
+            print("No HOT or WARM spots.")
             continue
         for spot in side["spots"]:
             print(
@@ -256,6 +253,50 @@ def show_game(team):
                 f"{spot['defensive_metric_rank']:>10}  "
                 f"{spot['label']}"
             )
+
+
+def show_game(team):
+    result = unwrap(get_game_hot_spots(team, context=CLI_CONTEXT))
+    if result is None:
+        return
+    _print_game(result["data"], result["meta"].get("week"))
+
+
+def show_slate():
+    result = unwrap(get_slate_hot_spots(context=CLI_CONTEXT))
+    if result is None:
+        return
+    games = result["data"]["games"]
+    week = result["meta"].get("week")
+    if not games:
+        print(f"WEEK {week} - NO GAMES")
+        return
+    for index, game in enumerate(games):
+        if index:
+            print()
+        _print_game(game, week)
+
+
+def show_offense_rankings(team):
+    result = unwrap(get_offense_stat_rankings(team, context=CLI_CONTEXT))
+    if result is None:
+        return
+    game = result["data"]
+    week = result["meta"].get("week")
+    print(f"WEEK {week} - {game['offense']} OFFENSE VS {game['defense']} DEFENSE")
+    print(f"{'RANK':<6}{'POS':<5}{'METRIC':<18}{'VALUE':>10}{'Z':>8}{'DEF RANK':>10}  LABEL")
+    for spot in game["spots"]:
+        print(
+            f"{spot['offense_rank']:<6}"
+            f"{spot['position'].upper():<5}"
+            f"{spot['metric']:<18}"
+            f"{spot['metric_value']:>10.2f}"
+            f"{signed(spot['z_score']):>8}"
+            f"{spot['defensive_metric_rank']:>10}  "
+            f"{spot['label']}"
+        )
+    if not game["spots"]:
+        print("No stats.")
 
 
 def show_offense_matchup(team, position):
@@ -381,7 +422,7 @@ def split_team_position(tokens):
 
 def show_matchup(tokens):
     if not tokens:
-        print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia")
+        print("matchup best | matchup chi | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia | matchup slate")
         return
     mode, *rest = tokens
     if mode == "best":
@@ -427,7 +468,22 @@ def show_matchup(tokens):
             return
         show_game(rest[0])
         return
-    print("matchup best | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia")
+    if mode == "slate":
+        if rest:
+            print("matchup slate")
+            return
+        show_slate()
+        return
+    if mode == "stats":
+        if len(rest) != 1:
+            print("matchup chi")
+            return
+        show_offense_rankings(rest[0])
+        return
+    if not rest and mode.upper() in known_team_abbrs():
+        show_offense_rankings(mode)
+        return
+    print("matchup best | matchup chi | matchup best receptions | matchup best wr | matchup best wr receptions | matchup defense det wr | matchup offense mia wr | matchup game mia | matchup slate")
 
 
 def classify(tokens):

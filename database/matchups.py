@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 
 from database.analysis import analyze_snapshot
-from database.queries import DB_PATH, league_table, matchup_context, season_status, team_on_bye
+from database.queries import DB_PATH, current_schedule, league_table, matchup_context, season_status, team_on_bye
 
 POSITION_METRICS = {
     "qb": ["Passing_Yd", "Passing_TD", "Rushing_Yd", "Rushing_TD"],
@@ -297,10 +297,21 @@ def get_offense_matchup(team, position):
     return found[0]
 
 
-def _hot_spots(records, offense):
-    spots = [dict(record) for record in records if record["offense"] == offense and record["label"] == "HOT"]
+def _target_spots(records, offense):
+    spots = [
+        dict(record)
+        for record in records
+        if record["offense"] == offense and record["label"] in {"HOT", "WARM"}
+    ]
     spots.sort(key=lambda record: record["z_score"], reverse=True)
     return spots
+
+
+def _game_sides(records, offense, defense):
+    return [
+        {"offense": offense, "defense": defense, "spots": _target_spots(records, offense)},
+        {"offense": defense, "defense": offense, "spots": _target_spots(records, defense)},
+    ]
 
 
 def game_hot_spots(team):
@@ -310,12 +321,37 @@ def game_hot_spots(team):
     pair = next((row for row in _weekly_sides().itertuples(index=False) if row.offense == team), None)
     if pair is None:
         return {"bye": True, "offense": team}
-    records = rank_weekly_opportunities()
     return {
         "offense": team,
         "defense": pair.defense,
-        "sides": [
-            {"offense": team, "defense": pair.defense, "spots": _hot_spots(records, team)},
-            {"offense": pair.defense, "defense": team, "spots": _hot_spots(records, pair.defense)},
-        ],
+        "sides": _game_sides(rank_weekly_opportunities(), team, pair.defense),
+    }
+
+
+def slate_hot_spots():
+    records = rank_weekly_opportunities()
+    games = []
+    for row in current_schedule().itertuples(index=False):
+        away = row.away_team
+        home = row.home_team
+        games.append({
+            "offense": away,
+            "defense": home,
+            "sides": _game_sides(records, away, home),
+        })
+    return {"games": games}
+
+
+def offense_stat_rankings(team):
+    team = team.upper()
+    if team_on_bye(team):
+        return {"bye": True, "offense": team}
+    pair = next((row for row in _weekly_sides().itertuples(index=False) if row.offense == team), None)
+    if pair is None:
+        return {"bye": True, "offense": team}
+    spots = [dict(record) for record in rank_weekly_opportunities() if record["offense"] == team]
+    return {
+        "offense": team,
+        "defense": pair.defense,
+        "spots": _assign_ranks(spots, "z_score", "offense_rank"),
     }

@@ -121,7 +121,7 @@ def format_game(result):
     for side in game["sides"]:
         header = f"{side['offense']} offense vs {side['defense']} defense"
         if not side["spots"]:
-            sections.append(f"{header}\nNo HOT spots.")
+            sections.append(f"{header}\nNo HOT or WARM spots.")
             continue
         blocks = [
             "\n".join([
@@ -143,6 +143,44 @@ def render_game(team, context, service):
     return call_service(
         lambda: service(team, context=context),
         format_game,
+    )
+
+
+def format_slate(result):
+    games = result["data"]["games"]
+    if not games:
+        return base_embed(f"Week {result['meta'].get('week')} Slate", "No games.", result.get("meta"))
+    return [format_game({"data": game, "meta": result.get("meta")}) for game in games]
+
+
+def render_slate(context, service):
+    return call_service(
+        lambda: service(context=context),
+        format_slate,
+    )
+
+
+def format_offense_rankings(result):
+    game = result["data"]
+    blocks = [
+        "\n".join([
+            f"{spot['offense_rank']}. {spot['position'].upper()} {metric_name(spot['metric'])}",
+            f"Value: {spot['metric_value']:.2f} | Z: {signed(spot['z_score'])} | "
+            f"Def Rank: {spot['defensive_metric_rank']} | {spot['label']}",
+        ])
+        for spot in game["spots"]
+    ]
+    return base_embed(
+        f"{game['offense']} offense vs {game['defense']} defense - Week {result['meta'].get('week')}",
+        "\n\n".join(blocks) if blocks else "No stats.",
+        result.get("meta"),
+    )
+
+
+def render_offense_rankings(team, context, service):
+    return call_service(
+        lambda: service(team, context=context),
+        format_offense_rankings,
     )
 
 

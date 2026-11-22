@@ -2,8 +2,10 @@ from database.matchups import (
     game_hot_spots,
     get_defense_profile as load_defense_profile,
     get_offense_matchup as load_offense_matchup,
+    offense_stat_rankings,
     rank_weekly_matchups,
     rank_weekly_metric,
+    slate_hot_spots,
 )
 from services.catalog import normalize_metric, normalize_position, normalize_team
 from services.errors import AppError, respond, success
@@ -68,6 +70,27 @@ def get_game_hot_spots(team, context=None):
         abbr = normalize_team(team)
         meta = snapshot_meta()
         record = game_hot_spots(abbr)
+        if record.get("bye"):
+            _not_playing(abbr, meta)
+        meta["offense"] = record["offense"]
+        meta["defense"] = record["defense"]
+        return success(record, meta)
+
+    return respond(action)
+
+
+def get_slate_hot_spots(context=None):
+    def action():
+        return success(slate_hot_spots(), snapshot_meta())
+
+    return respond(action)
+
+
+def get_offense_stat_rankings(team, context=None):
+    def action():
+        abbr = normalize_team(team)
+        meta = snapshot_meta()
+        record = offense_stat_rankings(abbr)
         if record.get("bye"):
             _not_playing(abbr, meta)
         meta["offense"] = record["offense"]

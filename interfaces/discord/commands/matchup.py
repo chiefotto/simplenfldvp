@@ -9,6 +9,8 @@ from services.matchup_service import (
     get_defense_profile,
     get_game_hot_spots,
     get_offense_matchup,
+    get_offense_stat_rankings,
+    get_slate_hot_spots,
 )
 from services.opportunity_service import get_top_weekly_opportunities
 
@@ -20,6 +22,8 @@ from interfaces.discord.formatters.matchup import (
     render_game,
     render_metric_matchup,
     render_offense_matchup,
+    render_slate,
+    render_offense_rankings,
     render_opportunities,
 )
 
@@ -82,11 +86,25 @@ class Matchup(app_commands.Group):
         text = render_offense_matchup(team, position, self._context(interaction), get_offense_matchup)
         await interaction.followup.send(embeds=as_embeds(text))
 
-    @app_commands.command(name="game", description="Show both offenses' HOT spots in one game.")
+    @app_commands.command(name="game", description="Show both offenses' HOT and WARM spots in one game.")
     @app_commands.describe(team="Either team in the game.")
     async def game(self, interaction: discord.Interaction, team: str):
         await interaction.response.defer()
         text = render_game(team, self._context(interaction), get_game_hot_spots)
+        await interaction.followup.send(embeds=as_embeds(text))
+
+    @app_commands.command(name="slate", description="Show HOT and WARM spots for every game on the slate.")
+    async def slate(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        embeds = as_embeds(render_slate(self._context(interaction), get_slate_hot_spots))
+        for index in range(0, len(embeds), 10):
+            await interaction.followup.send(embeds=embeds[index:index + 10])
+
+    @app_commands.command(name="stats", description="Rank every configured stat for one offense against its opponent.")
+    @app_commands.describe(team="Offense abbreviation.")
+    async def stats(self, interaction: discord.Interaction, team: str):
+        await interaction.response.defer()
+        text = render_offense_rankings(team, self._context(interaction), get_offense_stat_rankings)
         await interaction.followup.send(embeds=as_embeds(text))
 
     @app_commands.command(name="opportunities", description="Rank the strongest individual stat vulnerabilities.")

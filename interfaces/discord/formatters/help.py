@@ -15,6 +15,8 @@ SLASH_EXAMPLES = {
     "matchup defense": "/matchup defense team:DET position:WR",
     "matchup offense": "/matchup offense team:MIA position:WR",
     "matchup game": "/matchup game team:MIA",
+    "matchup slate": "/matchup slate",
+    "matchup stats": "/matchup stats team:CHI",
     "fantasy best": "/fantasy best",
     "fantasy worst": "/fantasy worst",
     "fantasy position": "/fantasy position position:WR",
