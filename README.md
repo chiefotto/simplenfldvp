@@ -39,11 +39,11 @@ A hosted Streamlit process does not see a scrape that wrote a different SQLite f
 
 Players are attached by season, game week, offensive team, and position. Names are display text. The stable id is the GSIS id. Snap counts join through the PFR id on `players`, never through the player name. Depth-chart rows without a GSIS or ESPN id are dropped and counted in the log.
 
-Game Outlook shows a short list beside each stat: one quarterback, two running backs, three wide receivers, and two tight ends. `ACT` and a blank status are eligible. `DEV`, `RES`, `INA`, `CUT`, `RET`, `EXE`, `TRD`, and `RLS` stay out of that list until "All rostered" is selected. `ACT` means the player is on the active roster. It does not mean he is confirmed to play.
+Game Outlook shows a short list beside each stat: up to one quarterback, two running backs, three wide receivers, and two tight ends. Only `ACT` and `ACTIVE` are eligible. A blank or unknown status is called unknown and stays out of that list. `DEV`, `RES`, `INA`, `CUT`, `RET`, `EXE`, `TRD`, and `RLS` stay out until "All rostered" is selected. `ACT` means the player is on the active roster. It does not mean he is confirmed to play.
 
-The order is the pregame depth chart, then recent usage, then season usage, then name. Rank 1 on more than one wide-receiver slot does not create an official WR1. Those players are ordered by recent targets and labeled "Depth chart + recent usage". If the chart and recent usage point at different players, the charted player stays first and the row says "Role uncertain". A charted player with no prior games stays on the list and gets no estimate. When no chart is available, the role says "Recent usage" or "Role uncertain".
+Numbered roles require a pregame depth chart or offensive usage. Recent usage is the player's production in the offense's last three completed games before the matchup, not the last three games that player happened to appear in. A known missed game counts as zero usage. A week with no stat and no snap row is missing, not zero. Season usage is the fallback. A fresh rank-1 chart stays ahead of a higher-usage backup and the row says "Role uncertain". A chart older than 10 days can be ordered by recent usage, and the row says the chart is older than the recent games. Rank 1 on more than one wide-receiver slot does not create an official WR1. Those players are ordered by recent targets and labeled "Depth chart + recent usage". Players with the same evidence share a role number and say they are tied. A name is never enough to assign QB1 or RB1. With no chart and no usage, the role is "Unranked". A charted player with no prior games stays on the list and gets no estimate.
 
-The depth chart used for a game is the latest observation strictly before `schedule.gameday`. A chart with a week and no timestamp uses the latest week before the game. A later chart is never applied to an earlier week.
+The depth chart used for a game is the latest observation before kickoff. When the chart has a timestamp and the schedule has a kickoff time, a same-day chart counts only when it is earlier than that kickoff in Eastern time. A date without a time is used only when the date is before `schedule.gameday`. A chart with a week and no timestamp uses the latest week before the game. A later chart is never applied to an earlier week.
 
 If that week's roster is missing, the app uses the latest stored roster week at or before the game week and says so. It never uses a later roster for an earlier week. Matchup numbers still appear when the roster is missing.
 
@@ -57,7 +57,16 @@ multiplier is capped between 0.50 and 1.50
 adjusted = player average × multiplier
 ```
 
-A comparison used by the backtest, and hidden unless "Show z-score comparison" is on, is `1 + 0.15 × z-score` with the same caps. Baseline 2.10, defense 2.10, and league 1.50 produce 2.52 with the default formula. Baseline 1.90 and z-score 2.00 produce 2.47 with the comparison formula. A zero average stays zero. A missing baseline, a missing prior defense snapshot, or a nonpositive league average produces no matchup factor. The estimate needs the outlook snapshot, which is the prior week or the latest earlier week, never a later week.
+A comparison used by the backtest, and hidden unless "Show z-score comparison" is on, is `1 + 0.15 × z-score` with the same caps. Baseline 2.10, defense 2.10, and league 1.50 produce 2.52 with the default formula. Baseline 1.90 and z-score 2.00 produce 2.47 with the comparison formula. A zero average stays zero. A missing baseline says why: player stats were not ingested, the player has no prior games, the stat is missing, or the player id did not match. A missing prior defense snapshot says the defense snapshot is unavailable. A nonpositive league average produces no matchup factor. The estimate needs the outlook snapshot, which is the prior week or the latest earlier week, never a later week.
+
+Player reference data can be refreshed without the CBS scrape:
+
+```text
+python scraper/reference.py --season 2026
+python -m services.health --season 2026 --week 12
+```
+
+The hosted app reads the committed `data/nfl_stats.db`. After a refresh, checkpoint the database, commit that file, push, and reboot the Streamlit app. Do not commit `data/nfl_stats.db-wal` or `data/nfl_stats.db-shm`.
 
 Team abbreviations follow the CBS table already stored in `raw_dvp`. nflverse calls the Rams `LA`; the database stores `LAR`. Other unrecognized abbreviations are logged and kept.
 

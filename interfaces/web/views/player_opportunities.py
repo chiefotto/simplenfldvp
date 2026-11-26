@@ -18,11 +18,15 @@ def page():
         st.info("Load a schedule before viewing player opportunities.")
         return
     show_warning(meta)
-    from interfaces.web.data import cached_player_opportunities
+    from interfaces.web.data import cached_data_revision, cached_health, cached_player_opportunities
 
+    health = cached_health(str(season), int(week))
+    if health.get("player_warning"):
+        st.warning(health["player_warning"])
     baseline_label = choice("baseline", "Baseline", list(BASELINES), "Season")
     scope_label = choice("roster", "Players", list(SCOPES), "Relevant")
-    rows = cached_player_opportunities(str(season), int(week), BASELINES[baseline_label], SCOPES[scope_label])
+    revision = cached_data_revision(str(season))
+    rows = cached_player_opportunities(str(season), int(week), BASELINES[baseline_label], SCOPES[scope_label], revision)
     filtered = _filters(rows)
     frame = _frame(filtered)
     if frame.empty:

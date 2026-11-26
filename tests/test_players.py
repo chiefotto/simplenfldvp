@@ -8,8 +8,10 @@ from database.storage import STAT_COLUMNS, save_depth_charts, save_dvp, save_pla
 from services.backtest import evaluate, format_report
 from services.player_service import (
     _average,
+    _before_kickoff,
     _flag_conflicts,
     _games_for,
+    _latest_chart,
     _limit,
     _order_players,
     filter_player_rows,
@@ -108,6 +110,77 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(average["player_avg"])
         self.assertEqual(average["games"], 0)
 
+    def test_no_evidence_stays_unranked_and_usage_beats_alphabetical_order(self):
+        members = [
+            _player("alpha", "Alpha", position="qb"),
+            _player("bravo", "Bravo", position="qb"),
+        ]
+        ordered = _order_players(members, pd.DataFrame(), {}, "qb")
+        self.assertTrue(all(player["role"] == "Unranked" for player in ordered))
+        self.assertEqual(_limit(ordered, "qb", "relevant"), [])
+        self.assertEqual(len(_limit(ordered, "qb", "eligible")), 2)
+        backs = [
+            _player("early", "Aaron", position="rb"),
+            _player("usage", "Zack", position="rb"),
+        ]
+        logs = {"usage": [_game(10, targets=12)]}
+        ordered = _order_players(backs, pd.DataFrame(), logs, "rb")
+        self.assertEqual(ordered[0]["player_id"], "usage")
+        self.assertEqual(ordered[0]["role"], "RB1")
+        self.assertEqual(ordered[0]["role_source"], "Recent usage")
+        self.assertEqual(ordered[1]["role"], "Unranked")
+
+    def test_team_window_recent_usage_ignores_older_games_and_missing_weeks(self):
+        members = [
+            _player("old", "Old", position="rb"),
+            _player("now", "Now", position="rb"),
+        ]
+        logs = {
+            "old": [_game(week, targets=30) for week in (1, 2, 3)],
+            "now": [_game(8, targets=5)],
+        }
+        ordered = _order_players(members, pd.DataFrame(), logs, "rb", team_weeks=[8, 9, 10])
+        self.assertEqual(ordered[0]["player_id"], "now")
+        self.assertEqual(ordered[0]["recent_primary"], 5)
+        self.assertEqual(ordered[0]["recent_missing"], 2)
+        self.assertFalse(ordered[1]["recent_known"])
+        tied = _order_players(
+            [_player("a", "Aaron", position="rb"), _player("b", "Zack", position="rb")],
+            pd.DataFrame(),
+            {"a": [_game(10, targets=4)], "b": [_game(10, targets=4)]},
+            "rb",
+            team_weeks=[10],
+        )
+        self.assertEqual(tied[0]["role"], tied[1]["role"])
+        self.assertEqual(tied[0]["role_note"], "Tied on available evidence.")
+
+    def test_stale_chart_yields_to_recent_usage_and_pregame_timestamps_are_kept(self):
+        members = [
+            _player("qb1", "Charted", position="qb"),
+            _player("qb2", "Usage", position="qb"),
+        ]
+        chart = pd.DataFrame([
+            {"player_id": "qb1", "pos_rank": 1},
+            {"player_id": "qb2", "pos_rank": 2},
+        ])
+        logs = {
+            "qb1": [_game(10, attempts=1)],
+            "qb2": [_game(week, attempts=20) for week in (8, 9, 10)],
+        }
+        ordered = _order_players(members, chart, logs, "qb", chart_fresh=False)
+        self.assertEqual(ordered[0]["player_id"], "qb2")
+        self.assertEqual(ordered[0]["role_source"], "Recent usage")
+        self.assertIn("older", ordered[0]["role_note"])
+        self.assertFalse(_before_kickoff("2026-11-26T23:30:00Z", "2026-11-26", "13:00"))
+        self.assertTrue(_before_kickoff("2026-11-26T15:00:00Z", "2026-11-26", "13:00"))
+        charts = pd.DataFrame([
+            {"team": "ARI", "position": "qb", "observed_at": "2026-11-20T12:00:00Z", "week": None, "player_id": "old", "pos_rank": 1},
+            {"team": "ARI", "position": "qb", "observed_at": "2026-11-26T15:00:00Z", "week": None, "player_id": "new", "pos_rank": 1},
+            {"team": "ARI", "position": "qb", "observed_at": "2026-11-26T23:30:00Z", "week": None, "player_id": "late", "pos_rank": 1},
+        ])
+        chosen = _latest_chart(charts, "ARI", "qb", "2026-11-26", 12, "13:00")
+        self.assertEqual(set(chosen["player_id"]), {"new"})
+
 
 class AverageTests(unittest.TestCase):
     def test_windows_played_zeros_missed_games_and_future_weeks(self):
@@ -185,7 +258,7 @@ class OpportunityTests(unittest.TestCase):
             ]))
             save_depth_charts(pd.DataFrame([
                 {"season": "2026", "observed_at": "2026-11-20T00:00:00Z", "week": None, "team": "ARI", "player_id": "00-qb", "player_name": "Starter", "position": "qb", "pos_abb": "QB", "pos_slot": 1, "pos_rank": 1},
-                {"season": "2026", "observed_at": "2026-11-26T00:00:00Z", "week": None, "team": "ARI", "player_id": "00-res", "player_name": "Reserve", "position": "qb", "pos_abb": "QB", "pos_slot": 1, "pos_rank": 1},
+                {"season": "2026", "observed_at": "2026-11-26T23:30:00Z", "week": None, "team": "ARI", "player_id": "00-res", "player_name": "Reserve", "position": "qb", "pos_abb": "QB", "pos_slot": 1, "pos_rank": 1},
             ]))
             stats = []
             snaps = []
@@ -206,6 +279,8 @@ class OpportunityTests(unittest.TestCase):
             self.assertEqual(passing[0]["role_source"], "Depth chart")
             self.assertTrue(passing[0]["adjusted"] is None or passing[0]["method"] in {None, "ratio"})
             self.assertNotIn("00-res", {row["player_id"] for row in rows if row["position"] == "qb"})
+            self.assertIsNotNone(passing[0]["adjusted"])
+            self.assertEqual(passing[0]["method"], "ratio")
             everyone = weekly_player_opportunities("2026", 12, scope="all")
             self.assertIn("00-res", {row["player_id"] for row in everyone})
             report = evaluate("2026", "passing_td")

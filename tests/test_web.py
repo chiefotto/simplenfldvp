@@ -97,6 +97,30 @@ class WebSmokeTests(unittest.TestCase):
         self.assertIn("Z-score", text)
         self.assertTrue(opened.dataframe or opened.caption)
 
+    def test_game_page_shows_a_missing_player_data_warning(self):
+        def game_page():
+            import streamlit as st
+            from interfaces.web.views.game_outlook import page
+            from interfaces.web.state import render_sidebar
+
+            season, week, meta = render_sidebar()
+            st.session_state["slate"] = (season, week, meta)
+            page()
+
+        with patch("interfaces.web.data.cached_health", return_value={
+            "player_warning": "Player stats are not in the database yet, so averages and adjusted estimates are unavailable. Defensive matchup scores are unchanged.",
+            "sources": {},
+        }):
+            import sqlite3
+            game = sqlite3.connect("data/nfl_stats.db").execute(
+                "SELECT game_id, season, week FROM schedule WHERE season = '2026' AND week = 11 LIMIT 1"
+            ).fetchone()
+            opened = _run(game_page, season=str(game[1]), week=str(game[2]), game_id=game[0])
+        _clean(opened)
+        text = " ".join(getattr(item, "value", "") for item in opened.warning)
+        self.assertIn("Player stats are not in the database", text)
+        self.assertTrue(any("Z-score" in getattr(item, "value", "") for item in opened.markdown))
+
     def test_empty_schedule_renders(self):
         def overview():
             import streamlit as st

@@ -14,9 +14,13 @@ def page():
     if not game_id:
         st.info("Open a game from the schedule or weekly overview.")
         return
-    from interfaces.web.data import cached_game, cached_player_opportunities
+    from interfaces.web.data import cached_data_revision, cached_game, cached_health, cached_player_opportunities
 
     show_warning(meta)
+    if season is not None and week is not None:
+        health = cached_health(str(season), int(week))
+        if health.get("player_warning"):
+            st.warning(health["player_warning"])
     result = cached_game(str(game_id), None if season is None else str(season), None if week is None else int(week))
     if not result.get("success"):
         show_result_error(result)
@@ -31,7 +35,10 @@ def page():
     baseline_label = choice("baseline", "Baseline", list(BASELINES), "Season")
     scope_label = choice("roster", "Players", list(SCOPES), "Relevant")
     show_z = _estimate_note()
-    players = cached_player_opportunities(str(game["season"]), int(game["week"]), BASELINES[baseline_label], SCOPES[scope_label])
+    revision = cached_data_revision(str(game["season"]))
+    players = cached_player_opportunities(
+        str(game["season"]), int(game["week"]), BASELINES[baseline_label], SCOPES[scope_label], revision,
+    )
     for side in game["sides"]:
         _offense(side, teams, players, show_z)
 

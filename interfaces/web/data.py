@@ -1,5 +1,6 @@
 import streamlit as st
 
+from services.health import data_revision, player_data_health
 from services.outlook_service import get_game_outlook, get_leaderboards, get_rankings, get_schedule_outlook
 
 
@@ -23,8 +24,18 @@ def cached_rankings(mode, season, week):
     return get_rankings(mode, season, week)
 
 
+@st.cache_data(ttl=60)
+def cached_data_revision(season):
+    return data_revision(season)
+
+
+@st.cache_data(ttl=60)
+def cached_health(season, week):
+    return player_data_health(season, week)
+
+
 @st.cache_data(ttl=300)
-def cached_player_opportunities(season, week, baseline, scope):
+def cached_player_opportunities(season, week, baseline, scope, revision):
     # Imported here so this name exists even if player services are still loading.
     from services.player_service import weekly_player_opportunities
 

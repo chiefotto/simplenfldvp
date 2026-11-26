@@ -6,6 +6,7 @@ from database.abbreviations import canonical_abbr, unknown_abbreviations
 from database.analysis import IncompleteMetric, analyze_metric, label_z
 from database.storage import STAT_COLUMNS
 from scraper.nfl_data import (
+    SchemaError,
     prepare_depth_charts,
     prepare_player_stats,
     prepare_players,
@@ -194,6 +195,27 @@ class PlayerSourceTests(unittest.TestCase):
             self.assertEqual(stat_count, (1, 25))
             self.assertEqual(snap_count, 2)
             self.assertEqual(pfr, "Rams00")
+
+    def test_stat_aliases_rejects_bad_schema_and_collapses_same_game(self):
+        aliased = prepare_player_stats(pd.DataFrame([
+            {"gsis_id": "00-1", "player_display_name": "One", "season": 2026, "week": 10, "season_type": "REG", "recent_team": "LA", "position": "QB", "game_id": "g1", "attempts": 10, "passing_tds": 1},
+            {"gsis_id": "00-1", "player_display_name": "One", "season": 2026, "week": 10, "season_type": "REG", "recent_team": "LAR", "position": "QB", "game_id": "g1", "attempts": 99, "passing_tds": 3},
+        ]))
+        self.assertEqual(len(aliased), 1)
+        self.assertEqual(aliased.iloc[0]["team"], "LAR")
+        self.assertEqual(aliased.iloc[0]["attempts"], 99)
+        self.assertEqual(len(prepare_player_stats(pd.DataFrame())), 0)
+        with self.assertRaises(SchemaError) as raised:
+            prepare_player_stats(pd.DataFrame([{"player_id": "00-1", "season": 2026, "week": 1}]))
+        self.assertIn("team", str(raised.exception))
+        with self.assertRaises(SchemaError):
+            prepare_snap_counts(pd.DataFrame([{"season": 2026, "week": 1, "team": "DET", "offense_snaps": 10}]))
+        with self.assertRaises(SchemaError):
+            prepare_depth_charts(pd.DataFrame([{"player_name": "No Team", "pos_rank": 1}]))
+        dropped = prepare_depth_charts(pd.DataFrame([
+            {"dt": "2026-11-20T12:00:00Z", "team": "DET", "player_name": "Placeholder", "gsis_id": "NA", "espn_id": "NA", "pos_abb": "QB", "pos_slot": 1, "pos_rank": 1},
+        ]), season=2026)
+        self.assertTrue(dropped.empty)
 
 
 class AnalysisRegressionTests(unittest.TestCase):

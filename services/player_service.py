@@ -1,9 +1,14 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 
 from database.matchups import PLAYER_STAT_COLUMNS, POSITION_METRICS, rank_weekly_opportunities
-from database.player_stats import depth_charts, game_dates, snap_counts, weekly_stats
+from database.player_stats import depth_charts, game_dates, schedule_sides, snap_counts, weekly_stats
 from database.rosters import roster_for
 from services.projection_service import estimate_ratio, estimate_z
+
+EASTERN = ZoneInfo("America/New_York")
 
 DEFAULT_LIMITS = {"qb": 1, "rb": 2, "wr": 3, "te": 2}
 LIMITED_GAMES = 3
@@ -11,10 +16,16 @@ ELIGIBLE_STATUSES = {"", "ACT", "ACTIVE"}
 BASELINES = {"season": None, "last3": 3, "last5": 5}
 
 
+def _status_kind(status):
+    if status is None or (isinstance(status, float) and pd.isna(status)) or str(status).strip() == "":
+        return "unknown"
+    if str(status).strip().upper() in ELIGIBLE_STATUSES - {""}:
+        return "active"
+    return "other"
+
+
 def is_eligible(status):
-    if status is None or (isinstance(status, float) and pd.isna(status)):
-        return True
-    return str(status).strip().upper() in ELIGIBLE_STATUSES
+    return _status_kind(status) == "active"
 
 
 def _blank(value):
@@ -91,24 +102,49 @@ def _games_for(stats, snaps, before_week):
     return logs
 
 
-def _usage(position, games):
-    def primary(game):
-        values = game["values"]
-        if position == "qb":
-            return values.get("attempts") or 0
-        if position == "rb":
-            return (values.get("carries") or 0) + (values.get("targets") or 0)
-        return values.get("targets") or 0
+def _primary(position, game):
+    values = game["values"]
+    if position == "qb":
+        return values.get("attempts") or 0
+    if position == "rb":
+        return (values.get("carries") or 0) + (values.get("targets") or 0)
+    return values.get("targets") or 0
 
+
+def _usage(position, games, team_weeks=None):
     played = [game for game in games if game["played"]]
-    recent = played[-3:]
+    if team_weeks is None:
+        recent = played[-3:]
+        recent_known = bool(played)
+        recent_missing = 0
+    else:
+        by_week = {int(game["week"]): game for game in games}
+        recent = []
+        known = 0
+        recent_missing = 0
+        for week in team_weeks:
+            game = by_week.get(int(week))
+            if game is None:
+                recent_missing += 1
+                continue
+            known += 1
+            if game["played"]:
+                recent.append(game)
+        recent_known = known > 0
     return {
-        "recent_primary": sum(primary(game) for game in recent),
-        "recent_snaps": sum(game["offense_snaps"] for game in recent),
-        "season_primary": sum(primary(game) for game in played),
-        "season_snaps": sum(game["offense_snaps"] for game in played),
+        "recent_primary": sum(_primary(position, game) for game in recent),
+        "recent_snaps": sum(game["offense_snaps"] or 0 for game in recent),
+        "recent_known": recent_known,
+        "recent_missing": recent_missing,
+        "season_primary": sum(_primary(position, game) for game in played),
+        "season_snaps": sum(game["offense_snaps"] or 0 for game in played),
         "played": played,
     }
+
+
+def _recent_team_weeks(weeks, game_week):
+    prior = sorted(week for week in weeks if int(week) < int(game_week))
+    return prior[-3:]
 
 
 def _chart_ranks(chart):
@@ -125,7 +161,68 @@ def _chart_ranks(chart):
     return ranks
 
 
-def _latest_chart(charts, team, position, gameday, game_week):
+def _kickoff(gameday, gametime):
+    if not gameday:
+        return None
+    day = str(gameday)[:10]
+    clock = "" if gametime is None or (isinstance(gametime, float) and pd.isna(gametime)) else str(gametime).strip()
+    if not clock or clock.lower() in {"nan", "none", "nat"}:
+        return None
+    hour, minute = (clock.split(":") + ["0"])[:2]
+    try:
+        local = datetime.fromisoformat(f"{day}T{int(hour):02d}:{int(float(minute)):02d}")
+    except ValueError:
+        return None
+    return local.replace(tzinfo=EASTERN)
+
+
+def _observed_at(value):
+    text = str(value or "")
+    if "T" not in text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
+    return parsed
+
+
+def _before_kickoff(observed, gameday, gametime):
+    text = str(observed or "")
+    kickoff = _kickoff(gameday, gametime)
+    parsed = _observed_at(text)
+    if parsed is not None and kickoff is not None:
+        return parsed < kickoff
+    if gameday and len(text) >= 10 and text[4] == "-":
+        return text[:10] < str(gameday)[:10]
+    return False
+
+
+def _chart_is_fresh(chart, gameday, game_week):
+    """A chart is fresh when it is within 10 days or one week of the game.
+
+    Older charts stay visible, but recent usage can resolve them.
+    """
+    if chart is None or chart.empty or not gameday:
+        return True
+    observed = str(chart["observed_at"].iloc[0])
+    if len(observed) >= 10 and observed[4] == "-":
+        try:
+            age = datetime.fromisoformat(str(gameday)[:10]) - datetime.fromisoformat(observed[:10])
+            return age.days <= 10
+        except ValueError:
+            pass
+    if "week" in chart.columns and game_week is not None:
+        week = pd.to_numeric(chart["week"], errors="coerce").dropna()
+        if not week.empty:
+            return int(game_week) - int(week.max()) <= 1
+    return True
+
+
+def _latest_chart(charts, team, position, gameday, game_week, gametime=None):
     if charts is None or charts.empty:
         return charts.iloc[0:0] if charts is not None else pd.DataFrame()
     rows = charts.loc[(charts["team"] == team) & (charts["position"] == position)].copy()
@@ -134,7 +231,11 @@ def _latest_chart(charts, team, position, gameday, game_week):
     observed = rows["observed_at"].fillna("").astype(str)
     dated = observed.str.match(r"^\d{4}-\d{2}-\d{2}")
     if gameday and dated.any():
-        chosen = rows.loc[dated & (observed.str.slice(0, 10) < str(gameday)[:10])]
+        eligible = [
+            _before_kickoff(value, gameday, gametime)
+            for value in observed
+        ]
+        chosen = rows.loc[dated.to_numpy() & pd.Series(eligible, index=rows.index).to_numpy()]
         if not chosen.empty:
             latest = chosen["observed_at"].max()
             return chosen.loc[chosen["observed_at"] == latest]
@@ -147,11 +248,36 @@ def _latest_chart(charts, team, position, gameday, game_week):
     return rows.iloc[0:0]
 
 
-def _order_players(members, chart, logs, position):
+def _has_role_evidence(player):
+    if player["pos_rank"] is not None:
+        return True
+    if player.get("recent_known") and (player["recent_primary"] or player["recent_snaps"]):
+        return True
+    return bool(player["season_primary"] or player["season_snaps"])
+
+
+def _evidence_key(player, prefer_usage):
+    chart = (
+        0 if player["pos_rank"] == 1 else 1,
+        player["pos_rank"] if player["pos_rank"] is not None else 10_000,
+    )
+    usage = (
+        0 if player.get("recent_known") else 1,
+        -(player["recent_primary"] or 0),
+        -(player["recent_snaps"] or 0),
+        -(player["season_primary"] or 0),
+        -(player["season_snaps"] or 0),
+    )
+    if prefer_usage:
+        return usage + chart
+    return chart + usage
+
+
+def _order_players(members, chart, logs, position, team_weeks=None, chart_fresh=True):
     ranks = _chart_ranks(chart)
     ranked = []
     for player in members:
-        usage = _usage(position, logs.get(player["player_id"], []))
+        usage = _usage(position, logs.get(player["player_id"], []), team_weeks)
         rank = ranks.get(player["player_id"])
         ranked.append({
             **player,
@@ -160,50 +286,81 @@ def _order_players(members, chart, logs, position):
             **usage,
         })
     eligible = [player for player in ranked if player["eligible"]]
-    eligible.sort(key=lambda player: (
-        0 if player["pos_rank"] == 1 else 1,
-        player["pos_rank"] if player["pos_rank"] is not None else 10_000,
-        -player["recent_primary"],
-        -player["recent_snaps"],
-        -player["season_primary"],
-        -player["season_snaps"],
-        player.get("player_name") or "",
-        player["player_id"],
-    ))
     starters = [player for player in eligible if player["pos_rank"] == 1]
-    usage_leader = None
-    if eligible:
-        usage_leader = max(eligible, key=lambda player: (
-            player["recent_primary"], player["recent_snaps"], player["season_primary"], player["player_id"],
-        ))
+    starters.sort(key=lambda player: (-player["recent_primary"], -player["recent_snaps"], player.get("player_name") or "", player["player_id"]))
+    usage_candidates = [player for player in eligible if player.get("recent_known")]
+    usage_leader = max(
+        usage_candidates,
+        key=lambda player: (player["recent_primary"], player["recent_snaps"], player["season_primary"], player["player_id"]),
+        default=None,
+    )
     chart_leader = starters[0] if starters else None
     uncertain = (
-        chart_leader is not None
+        chart_fresh
+        and chart_leader is not None
         and usage_leader is not None
         and usage_leader["player_id"] != chart_leader["player_id"]
         and usage_leader["recent_primary"] > chart_leader["recent_primary"]
     )
-    for index, player in enumerate(eligible, start=1):
-        player["role"] = f"{position.upper()}{index}"
-        if len(starters) > 1 and player["pos_rank"] == 1:
+    prefer_usage = (
+        not chart_fresh
+        and chart_leader is not None
+        and usage_leader is not None
+        and usage_leader["player_id"] != chart_leader["player_id"]
+        and usage_leader["recent_primary"] > chart_leader["recent_primary"]
+    )
+    eligible.sort(key=lambda player: (
+        0 if _has_role_evidence(player) else 1,
+        *_evidence_key(player, prefer_usage),
+        player.get("player_name") or "",
+        player["player_id"],
+    ))
+    evidenced = [player for player in eligible if _has_role_evidence(player)]
+    keys = [_evidence_key(player, prefer_usage) for player in evidenced]
+    counts = {}
+    for key in keys:
+        counts[key] = counts.get(key, 0) + 1
+    number = 0
+    previous = None
+    for player, key in zip(evidenced, keys):
+        if key != previous:
+            number += 1
+            previous = key
+        player["role"] = f"{position.upper()}{number}"
+        if prefer_usage and player.get("recent_known") and (player["recent_primary"] or player["recent_snaps"]):
+            player["role_source"] = "Recent usage"
+        elif len(starters) > 1 and player["pos_rank"] == 1:
             player["role_source"] = "Depth chart + recent usage"
         elif player["pos_rank"] is not None:
             player["role_source"] = "Depth chart"
-        elif player["recent_primary"] or player["season_primary"]:
-            player["role_source"] = "Recent usage" if player["recent_primary"] else "Season usage"
+        elif player["recent_primary"] or player["recent_snaps"]:
+            player["role_source"] = "Recent usage"
         else:
-            player["role_source"] = "Role uncertain"
+            player["role_source"] = "Season usage"
         player["role_note"] = None
+        if counts[key] > 1:
+            player["role_note"] = "Tied on available evidence."
+        if prefer_usage and usage_leader is not None and player["player_id"] == usage_leader["player_id"]:
+            player["role_note"] = "Depth chart is older than the recent games."
         if uncertain and chart_leader is not None and player["player_id"] == chart_leader["player_id"]:
             player["role_note"] = "Role uncertain"
             if len(starters) <= 1:
                 player["role_source"] = "Role uncertain"
+    for player in eligible:
+        if _has_role_evidence(player):
+            continue
+        player["role"] = "Unranked"
+        player["role_source"] = "Role unknown"
+        player["role_note"] = "No pregame depth chart or recent usage."
     ineligible = [player for player in ranked if not player["eligible"]]
     ineligible.sort(key=lambda player: (player.get("player_name") or "", player["player_id"]))
     for player in ineligible:
         player["role"] = None
         player["role_source"] = "Roster status"
-        player["role_note"] = player.get("roster_status")
+        if _status_kind(player.get("roster_status")) == "unknown":
+            player["role_note"] = "Roster status unknown."
+        else:
+            player["role_note"] = player.get("roster_status")
     return eligible + ineligible
 
 
@@ -214,7 +371,8 @@ def _limit(players, position, scope):
         return eligible + ineligible
     if scope == "eligible":
         return eligible
-    return eligible[: DEFAULT_LIMITS.get(position, 3)]
+    evidenced = [player for player in eligible if player.get("role") not in {None, "Unranked"}]
+    return evidenced[: DEFAULT_LIMITS.get(position, 3)]
 
 
 def _window(played, baseline):
@@ -238,6 +396,7 @@ def _average(player, metric, baseline, roster_team, dates):
             "last_week": None,
             "last_date": None,
             "participation_note": None,
+            "metric_unavailable": column is None and bool(sample),
             "notes": notes,
         }
     values = []
@@ -260,6 +419,7 @@ def _average(player, metric, baseline, roster_team, dates):
             "last_week": sample[-1]["week"],
             "last_date": dates.get((sample[-1]["week"], roster_team)),
             "participation_note": notes[-1] if notes else None,
+            "metric_unavailable": True,
             "notes": notes,
         }
     last = sample[-1]
@@ -270,6 +430,7 @@ def _average(player, metric, baseline, roster_team, dates):
         "last_week": last["week"],
         "last_date": dates.get((last["week"], last.get("team") or roster_team)),
         "participation_note": "Participation data is incomplete. Box scores fill weeks without snap counts." if incomplete else None,
+        "metric_unavailable": False,
         "notes": notes,
     }
 
@@ -316,21 +477,38 @@ def weekly_player_opportunities(season, week, baseline="season", scope="relevant
     opportunities = rank_weekly_opportunities(season, week)
     if not opportunities:
         return []
-    logs = _games_for(weekly_stats(season, week), snap_counts(season, week), week)
+    stats = weekly_stats(season, week)
+    snaps = snap_counts(season, week)
+    stats_available = stats is not None and not stats.empty
+    snaps_available = snaps is not None and not snaps.empty
+    logs = _games_for(stats, snaps, week)
     charts = depth_charts(season)
     dates = game_dates(season)
+    team_weeks = {}
+    for record in schedule_sides(season).to_dict(orient="records"):
+        team_weeks.setdefault(record["team"], []).append(int(record["week"]))
     grouped = {}
     for player in roster["players"]:
         grouped.setdefault((player["team"], player["position"]), []).append(player)
     gameday = {}
+    gametime = {}
     for record in opportunities:
         gameday[record["offense"]] = record.get("gameday")
+        gametime[record["offense"]] = record.get("gametime")
     rows = []
     for (team, position), members in grouped.items():
         if position not in POSITION_METRICS:
             continue
-        chart = _latest_chart(charts, team, position, gameday.get(team), week)
-        visible = _limit(_order_players(members, chart, logs, position), position, scope)
+        chart = _latest_chart(charts, team, position, gameday.get(team), week, gametime.get(team))
+        ordered = _order_players(
+            members,
+            chart,
+            logs,
+            position,
+            team_weeks=_recent_team_weeks(team_weeks.get(team, []), week),
+            chart_fresh=_chart_is_fresh(chart, gameday.get(team), week),
+        )
+        visible = _limit(ordered, position, scope)
         spots = [
             record for record in opportunities
             if record["offense"] == team and record["position"] == position
@@ -344,6 +522,17 @@ def weekly_player_opportunities(season, week, baseline="season", scope="relevant
                 else:
                     estimate = estimate_ratio(average["player_avg"], spot["metric_value"], spot["league_mean"])
                     comparison = estimate_z(average["player_avg"], spot["z_score"])
+                if average["player_avg"] is None:
+                    if average.get("metric_unavailable"):
+                        estimate["reason"] = "Metric unavailable."
+                    elif not player.get("player_id"):
+                        estimate["reason"] = "No matching player ID."
+                    elif not stats_available and not snaps_available:
+                        estimate["reason"] = "Player stats not ingested."
+                    else:
+                        estimate["reason"] = "No prior games."
+                elif spot.get("snapshot_week") is None:
+                    estimate["reason"] = "Defense snapshot unavailable."
                 warning = _warning(player, average, estimate)
                 rows.append({
                     "game_id": spot.get("game_id"),

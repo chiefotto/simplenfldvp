@@ -81,7 +81,33 @@ def render_sidebar():
         st.sidebar.caption(meta["roster_note"])
     elif meta.get("roster_week") is not None:
         st.sidebar.caption(f"Roster snapshot: week {meta['roster_week']}")
+    _health(chosen_season, chosen_week)
     return chosen_season, chosen_week, meta
+
+
+def _health(season, week):
+    try:
+        from interfaces.web.data import cached_health
+
+        health = cached_health(str(season), int(week))
+    except Exception:
+        return
+    sources = (health or {}).get("sources") or {}
+    if not sources:
+        return
+    labels = {
+        "defense": "Defense snapshot",
+        "schedule": "Schedule",
+        "roster": "Roster",
+        "depth": "Depth charts",
+        "stats": "Weekly player stats",
+        "snaps": "Snap counts",
+        "baselines": "Historical baselines",
+    }
+    with st.sidebar.expander("Data health"):
+        for key, label in labels.items():
+            source = sources[key]
+            st.caption(f"{label}: {source['status']}. {source['detail']}")
 
 
 def choice(name, label, options, default):

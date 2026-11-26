@@ -25,11 +25,22 @@ def _as_pandas(raw):
     raise TypeError(f"unsupported frame type {type(raw).__name__}")
 
 
+class SchemaError(ValueError):
+    """A downloaded frame has rows but not the columns this app can store."""
+
+    def __init__(self, source, missing, columns):
+        self.source = source
+        self.missing = list(missing)
+        self.columns = [str(column) for column in columns]
+        found = ", ".join(self.columns) or "(none)"
+        super().__init__(f"{source} schema is missing {', '.join(self.missing)}; found {found}")
+
+
 def _text(value):
     if value is None or pd.isna(value):
         return None
     text = str(value).strip()
-    if text.lower() in {"", "nan", "none", "<na>"}:
+    if text.lower() in {"", "nan", "none", "<na>", "null", "na", "n/a", "nat"}:
         return None
     if text.endswith(".0") and text[:-2].lstrip("-").isdigit():
         text = text[:-2]
@@ -97,6 +108,8 @@ def prepare_rosters(raw):
             "roster_status": _text(_first(record, ("status", "roster_status"))),
             "jersey_number": _text(record.get("jersey_number")),
             "headshot_url": _text(_first(record, ("headshot_url", "headshot"))),
+            "pfr_id": _text(record.get("pfr_id")),
+            "espn_id": _text(record.get("espn_id")),
         })
     prepared = pd.DataFrame(rows)
     if prepared.empty:
@@ -111,8 +124,10 @@ def prepare_rosters(raw):
 
 def prepare_players(raw):
     frame = _as_pandas(raw)
-    if frame.empty or "gsis_id" not in frame.columns:
-        return pd.DataFrame(columns=["player_id", "player_name", "position", "headshot_url"])
+    if frame.empty:
+        return pd.DataFrame(columns=["player_id", "player_name", "position", "headshot_url", "pfr_id", "espn_id"])
+    if "gsis_id" not in frame.columns and "player_id" not in frame.columns:
+        raise SchemaError("players", ["gsis_id"], frame.columns)
     rows = []
     for record in frame.to_dict(orient="records"):
         player_id = _text(record.get("gsis_id"))
@@ -206,10 +221,14 @@ def _roster_position(abbreviation):
 
 def prepare_depth_charts(raw, espn_to_gsis=None, season=None):
     frame = _as_pandas(raw)
-    if frame.empty or "team" not in frame.columns or "pos_abb" not in frame.columns:
+    if frame.empty:
         return _empty_charts()
+    missing = [name for name in ("team", "pos_abb") if name not in frame.columns]
+    if missing:
+        raise SchemaError("depth charts", missing, frame.columns)
     if "dt" not in frame.columns and "week" not in frame.columns:
-        raise ValueError("depth chart frame needs dt or week")
+        raise SchemaError("depth charts", ["dt or week"], frame.columns)
+    frame = frame.loc[frame["pos_abb"].map(lambda value: (_text(value) or "").upper() in CHART_POSITIONS)].copy()
     espn_to_gsis = espn_to_gsis or {}
     rows = []
     missing_ids = 0
@@ -263,14 +282,40 @@ def prepare_depth_charts(raw, espn_to_gsis=None, season=None):
     return prepared.reset_index(drop=True)
 
 
+def _rename_alias(frame, aliases, target):
+    for name in aliases:
+        if name in frame.columns:
+            if name != target:
+                frame = frame.rename(columns={name: target})
+            return frame
+    return None
+
+
 def prepare_player_stats(raw):
     frame = _as_pandas(raw)
-    required = {"player_id", "season", "week", "team"}
-    if frame.empty or not required <= set(frame.columns):
+    if frame.empty:
         return _empty_stats()
-    work = frame.copy()
-    if "season_type" in work.columns:
-        work = work.loc[work["season_type"].map(lambda value: (_text(value) or "").upper()) == "REG"]
+    missing = []
+    renamed = _rename_alias(frame, ("player_id", "gsis_id"), "player_id")
+    if renamed is None:
+        missing.append("player_id")
+        work = frame
+    else:
+        work = renamed
+    renamed = _rename_alias(work, ("team", "recent_team", "team_abbr"), "team")
+    if renamed is None:
+        missing.append("team")
+    else:
+        work = renamed
+    for name in ("season", "week"):
+        if name not in work.columns:
+            missing.append(name)
+    if missing:
+        raise SchemaError("player stats", missing, frame.columns)
+    work = work.copy()
+    season_column = "season_type" if "season_type" in work.columns else "game_type" if "game_type" in work.columns else None
+    if season_column is not None:
+        work = work.loc[work[season_column].map(lambda value: (_text(value) or "").upper()) == "REG"]
     work["position"] = work["position"].map(_roster_position) if "position" in work.columns else None
     work = work.loc[work["position"].notna()]
     if work.empty:
@@ -289,7 +334,12 @@ def prepare_player_stats(raw):
     work = work.dropna(subset=["season", "week", "player_id", "team"])
     if work.empty:
         return _empty_stats()
-    grouped = work.groupby(["season", "week", "player_id"], as_index=False)
+    identity = ["season", "week", "player_id"]
+    if "game_id" in work.columns and work["game_id"].map(_text).notna().any():
+        work = work.drop_duplicates([*identity, "game_id"], keep="last")
+    else:
+        work = work.drop_duplicates(identity, keep="last")
+    grouped = work.groupby(identity, as_index=False)
     totals = grouped[list(STAT_FIELDS)].sum(min_count=1)
     details = grouped.agg(
         player_name=("player_name", "last"),
@@ -304,11 +354,20 @@ def prepare_player_stats(raw):
 
 def prepare_snap_counts(raw, pfr_to_gsis=None):
     frame = _as_pandas(raw)
-    if frame.empty or "team" not in frame.columns:
+    if frame.empty:
         return _empty_snaps()
     pfr_column = "pfr_player_id" if "pfr_player_id" in frame.columns else "pfr_id" if "pfr_id" in frame.columns else None
-    if pfr_column is None or "week" not in frame.columns:
-        return _empty_snaps()
+    missing = []
+    if "team" not in frame.columns:
+        missing.append("team")
+    if pfr_column is None:
+        missing.append("pfr_player_id")
+    if "week" not in frame.columns:
+        missing.append("week")
+    if "season" not in frame.columns:
+        missing.append("season")
+    if missing:
+        raise SchemaError("snap counts", missing, frame.columns)
     pfr_to_gsis = pfr_to_gsis or {}
     work = frame.copy()
     if "game_type" in work.columns:
@@ -377,6 +436,27 @@ def _stored_id_maps():
     return pfr_to_gsis, espn_to_gsis
 
 
+def _frame_count(raw):
+    if raw is None:
+        return 0
+    if hasattr(raw, "height"):
+        return int(raw.height)
+    try:
+        return len(raw)
+    except TypeError:
+        return 0
+
+
+def _source_status(downloaded, prepared, written, error=None):
+    if error:
+        return "failed"
+    if not downloaded or prepared is None or prepared == 0:
+        return "empty"
+    if written:
+        return "written"
+    return "prepared"
+
+
 def ingest_reference_data(season, loaders=None):
     import nflreadpy as nfl
 
@@ -401,6 +481,7 @@ def ingest_reference_data(season, loaders=None):
         "player_warning": None,
     }
     prepared_players = pd.DataFrame()
+    rosters = pd.DataFrame()
     try:
         teams = prepare_teams(load_teams())
         result["teams_written"] = save_teams(teams)
@@ -425,7 +506,10 @@ def ingest_reference_data(season, loaders=None):
     except Exception as error:
         logger.error("roster ingestion failed: %s", error)
         result["roster_warning"] = str(error)
-    pfr_to_gsis, espn_to_gsis = _id_maps(prepared_players)
+    pfr_to_gsis, espn_to_gsis = _id_maps(players_from_rosters(rosters))
+    downloaded_pfr, downloaded_espn = _id_maps(prepared_players)
+    pfr_to_gsis = {**pfr_to_gsis, **downloaded_pfr}
+    espn_to_gsis = {**espn_to_gsis, **downloaded_espn}
     try:
         stored_pfr, stored_espn = _stored_id_maps()
         pfr_to_gsis = {**stored_pfr, **pfr_to_gsis}
@@ -433,39 +517,61 @@ def ingest_reference_data(season, loaders=None):
     except Exception as error:
         logger.error("player id crosswalk failed: %s", error)
     warnings = []
-    try:
-        charts = prepare_depth_charts(load_depth([int(season)]), espn_to_gsis, season)
-        if charts.empty:
-            logger.warning("depth chart download for %s was empty; stored charts were left unchanged", season)
-            warnings.append(f"no depth chart rows for {season}")
-        else:
-            result["depth_written"] = save_depth_charts(charts)
-    except Exception as error:
-        logger.error("depth chart ingestion failed: %s", error)
-        warnings.append(str(error))
-    try:
-        stats = prepare_player_stats(load_stats([int(season)]))
-        if stats.empty:
-            logger.warning("player stat download for %s was empty; stored stats were left unchanged", season)
-            warnings.append(f"no player stat rows for {season}")
-        else:
-            result["stats_written"] = save_player_stats(stats)
-    except Exception as error:
-        logger.error("player stat ingestion failed: %s", error)
-        warnings.append(str(error))
-    try:
-        snaps = prepare_snap_counts(load_snaps([int(season)]), pfr_to_gsis)
-        if snaps.empty:
-            logger.warning("snap count download for %s was empty; stored snaps were left unchanged", season)
-            warnings.append(f"no snap rows for {season}")
-        else:
-            result["snaps_unmatched"] = int(snaps["player_id"].isna().sum())
-            result["snaps_written"] = save_snap_counts(snaps)
-            if result["snaps_unmatched"]:
-                logger.warning("%s snap rows have no GSIS id", result["snaps_unmatched"])
-    except Exception as error:
-        logger.error("snap count ingestion failed: %s", error)
-        warnings.append(str(error))
+
+    def _load_source(name, loader, prepare, save):
+        status = {"downloaded": 0, "prepared": 0, "written": 0, "status": "failed", "error": None}
+        try:
+            raw = loader()
+            status["downloaded"] = _frame_count(raw)
+            prepared = prepare(raw)
+            status["prepared"] = 0 if prepared is None or prepared.empty else len(prepared)
+            if prepared is None or prepared.empty:
+                logger.warning("%s download for %s was empty; stored rows were left unchanged", name, season)
+                warnings.append(f"no {name} rows for {season}")
+            else:
+                status["written"] = save(prepared)
+            status["status"] = _source_status(status["downloaded"], status["prepared"], status["written"])
+            return prepared, status
+        except SchemaError as error:
+            logger.error("%s ingestion failed: %s", name, error)
+            status["error"] = str(error)
+            warnings.append(str(error))
+            return pd.DataFrame(), status
+        except Exception as error:
+            logger.error("%s ingestion failed: %s: %s", name, type(error).__name__, error)
+            status["error"] = f"{type(error).__name__}: {error}"
+            warnings.append(status["error"])
+            return pd.DataFrame(), status
+
+    charts, depth_status = _load_source(
+        "depth charts",
+        lambda: load_depth([int(season)]),
+        lambda raw: prepare_depth_charts(raw, espn_to_gsis, season),
+        save_depth_charts,
+    )
+    result["depth_written"] = depth_status["written"]
+    result["depth"] = depth_status
+    stats, stats_status = _load_source(
+        "player stats",
+        lambda: load_stats([int(season)]),
+        prepare_player_stats,
+        save_player_stats,
+    )
+    result["stats_written"] = stats_status["written"]
+    result["stats"] = stats_status
+    snaps, snaps_status = _load_source(
+        "snap counts",
+        lambda: load_snaps([int(season)]),
+        lambda raw: prepare_snap_counts(raw, pfr_to_gsis),
+        save_snap_counts,
+    )
+    result["snaps_written"] = snaps_status["written"]
+    result["snaps"] = snaps_status
+    if snaps is not None and not snaps.empty and "player_id" in snaps.columns:
+        result["snaps_unmatched"] = int(snaps["player_id"].isna().sum())
+        if result["snaps_unmatched"]:
+            logger.warning("%s snap rows have no GSIS id", result["snaps_unmatched"])
+            snaps_status["unmatched"] = result["snaps_unmatched"]
     if warnings:
         result["player_warning"] = "; ".join(warnings)
     logger.info(

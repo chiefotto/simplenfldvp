@@ -51,6 +51,15 @@ def depth_charts(season):
     )
 
 
+def schedule_sides(season):
+    sql = """
+        SELECT week, gameday, gametime, away_team AS team FROM schedule WHERE season = ?
+        UNION ALL
+        SELECT week, gameday, gametime, home_team AS team FROM schedule WHERE season = ?
+    """
+    return _read(sql, [str(season), str(season)])
+
+
 def game_dates(season):
     frame = _read(
         """
