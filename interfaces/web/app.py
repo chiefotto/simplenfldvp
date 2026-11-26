@@ -7,12 +7,17 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import streamlit as st
+from streamlit.runtime.pages_manager import PagesManager
 
-from interfaces.web.pages.game_outlook import page as game_page
-from interfaces.web.pages.overview import page as overview_page
-from interfaces.web.pages.player_opportunities import page as player_page
-from interfaces.web.pages.rankings import page as rankings_page
-from interfaces.web.pages.schedule import page as schedule_page
+# A folder named pages/ next to this file makes Streamlit run those modules
+# itself, before this app finishes importing them.
+PagesManager.uses_pages_directory = False
+
+from interfaces.web.views.game_outlook import page as game_page
+from interfaces.web.views.overview import page as overview_page
+from interfaces.web.views.player_opportunities import page as player_page
+from interfaces.web.views.rankings import page as rankings_page
+from interfaces.web.views.schedule import page as schedule_page
 from interfaces.web.state import render_sidebar
 
 

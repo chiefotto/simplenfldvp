@@ -1,7 +1,6 @@
 import streamlit as st
 
 from interfaces.web.components import player_estimate_table, show_result_error, show_warning, signed, spot_block, team_logo
-from interfaces.web.data import cached_game, cached_player_opportunities
 from interfaces.web.state import choice, query_value
 
 BASELINES = {"Season": "season", "Last 3": "last3", "Last 5": "last5"}
@@ -15,6 +14,8 @@ def page():
     if not game_id:
         st.info("Open a game from the schedule or weekly overview.")
         return
+    from interfaces.web.data import cached_game, cached_player_opportunities
+
     show_warning(meta)
     result = cached_game(str(game_id), None if season is None else str(season), None if week is None else int(week))
     if not result.get("success"):

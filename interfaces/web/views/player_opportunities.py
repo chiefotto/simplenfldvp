@@ -2,7 +2,6 @@ import pandas as pd
 import streamlit as st
 
 from interfaces.web.components import flag_style, show_warning
-from interfaces.web.data import cached_player_opportunities
 from interfaces.web.state import choice, query_value
 from services.outlook_service import metric_label
 from services.player_service import filter_player_rows, sort_player_rows
@@ -19,6 +18,8 @@ def page():
         st.info("Load a schedule before viewing player opportunities.")
         return
     show_warning(meta)
+    from interfaces.web.data import cached_player_opportunities
+
     baseline_label = choice("baseline", "Baseline", list(BASELINES), "Season")
     scope_label = choice("roster", "Players", list(SCOPES), "Relevant")
     rows = cached_player_opportunities(str(season), int(week), BASELINES[baseline_label], SCOPES[scope_label])

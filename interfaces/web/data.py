@@ -1,7 +1,6 @@
 import streamlit as st
 
 from services.outlook_service import get_game_outlook, get_leaderboards, get_rankings, get_schedule_outlook
-from services.player_service import weekly_player_opportunities
 
 
 @st.cache_data(ttl=300)
@@ -26,4 +25,7 @@ def cached_rankings(mode, season, week):
 
 @st.cache_data(ttl=300)
 def cached_player_opportunities(season, week, baseline, scope):
+    # Imported here so this name exists even if player services are still loading.
+    from services.player_service import weekly_player_opportunities
+
     return weekly_player_opportunities(season, week, baseline, scope)

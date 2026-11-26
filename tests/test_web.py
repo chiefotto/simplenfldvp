@@ -24,7 +24,7 @@ class WebSmokeTests(unittest.TestCase):
     def test_pages_render_for_the_stored_slate(self):
         def overview():
             import streamlit as st
-            from interfaces.web.pages.overview import page
+            from interfaces.web.views.overview import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
@@ -34,7 +34,7 @@ class WebSmokeTests(unittest.TestCase):
 
         def schedule():
             import streamlit as st
-            from interfaces.web.pages.schedule import page
+            from interfaces.web.views.schedule import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
@@ -44,7 +44,7 @@ class WebSmokeTests(unittest.TestCase):
 
         def rankings():
             import streamlit as st
-            from interfaces.web.pages.rankings import page
+            from interfaces.web.views.rankings import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
@@ -53,7 +53,7 @@ class WebSmokeTests(unittest.TestCase):
 
         def players():
             import streamlit as st
-            from interfaces.web.pages.player_opportunities import page
+            from interfaces.web.views.player_opportunities import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
@@ -80,7 +80,7 @@ class WebSmokeTests(unittest.TestCase):
 
         def game_page():
             import streamlit as st
-            from interfaces.web.pages.game_outlook import page
+            from interfaces.web.views.game_outlook import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
@@ -100,7 +100,7 @@ class WebSmokeTests(unittest.TestCase):
     def test_empty_schedule_renders(self):
         def overview():
             import streamlit as st
-            from interfaces.web.pages.overview import page
+            from interfaces.web.views.overview import page
             from interfaces.web.state import render_sidebar
 
             season, week, meta = render_sidebar()
