@@ -4,14 +4,65 @@ This app stores weekly NFL defense-vs-position tables and ranks the current slat
 
 ## Run it
 
-Install the packages in `.venv`, then:
+Python 3.12. Install the packages in `.venv`, then:
 
 ```bash
+pip install -r requirements.txt
 python scraper/main.py
 python cli.py
+python -m interfaces.discord.bot
+streamlit run interfaces/web/app.py
 ```
 
-`python scraper/main.py` is the admin load. It downloads the CBS position-vs-defense pages for QB, RB, WR, and TE, downloads the regular-season schedule, and writes both into `data/nfl_stats.db`. Running it again updates the same season and week in place.
+`python scraper/main.py` is the admin load. It downloads the CBS position-vs-defense pages for QB, RB, WR, and TE, downloads the regular-season schedule, weekly rosters, player ids, and team metadata through nflreadpy, and writes them into `data/nfl_stats.db`. Running it again updates the same rows in place. An empty roster, player, or team response does not erase the rows already stored. The database upgrade is `database.storage.initialize_database()`, which the scraper and the web app run themselves. Existing defense and schedule rows stay in place.
+
+Tests:
+
+```bash
+python -m unittest discover -s tests
+```
+
+## Architecture
+
+CBS pages and nflreadpy both land in SQLite. `database/analysis.py` scores a snapshot. Services in `services/` assemble matchups, fantasy boards, rosters, and outlooks. The CLI, Discord bot, and Streamlit app only present those results.
+
+nflreadpy is the schedule, roster, player, and team client: `load_schedules`, `load_rosters_weekly`, `load_players`, and `load_teams`. The completed-week rule is still local. A week is complete only when every game in that week has both scores.
+
+The web app reads the database. It does not call CBS or nflverse while you browse. Cached reads expire after five minutes, so a new scrape shows up without a restart. Discord `/outlook` commands link to that app. Set `WEB_APP_BASE_URL` in `.env` to the address where Streamlit is hosted. If it is empty, the bot says so instead of failing.
+
+A hosted Streamlit process does not see a scrape that wrote a different SQLite file. Point the server, the bot, and the scraper at the same `data/nfl_stats.db`, or copy the file to the server after a refresh. This repo does not deploy the site.
+
+## Rosters and players
+
+Players are attached by season, game week, offensive team, and position. A Detroit wide-receiver matchup lists Detroit wide receivers. Names are display text. The stable id is the GSIS id. The list is alphabetical. It is not a usage ranking and it is not a start/sit recommendation. Roster status is shown as stored, including inactive and injured players.
+
+If that week's roster is missing, the app uses the latest stored roster week at or before the game week and says so. It never uses a later roster for an earlier week. Matchup numbers still appear when the roster is missing.
+
+Team abbreviations follow the CBS table already stored in `raw_dvp`. nflverse calls the Rams `LA`; the database stores `LAR`. Other unrecognized abbreviations are logged and kept.
+
+## Web pages
+
+`streamlit run interfaces/web/app.py` opens Weekly Overview. Schedule, Game Outlook, and Rankings are the other pages. The season and week stay in the URL:
+
+```text
+/?season=2026&week=12
+/schedule?season=2026&week=12
+/game?season=2026&week=12&game_id=...
+/rankings?season=2026&week=12&position=WR
+/?season=2026&week=12&metric=receiving_td&top=10
+```
+
+Kickoff times are labeled ET. HOT, WARM, NEUTRAL, COOL, and COLD are written as words. Rankings can be downloaded as CSV after filters. Filters do not recompute z-scores or league ranks.
+
+Discord:
+
+```text
+/outlook weekly
+/outlook game team:DET
+/outlook rankings position:WR
+```
+
+Optional season, week, and metric arguments are accepted when they match a stored week and a configured stat.
 
 `python cli.py` opens the menu. Type a command and press enter. `help` lists the forms. `quit` exits.
 
@@ -86,7 +137,7 @@ The bot is a thin client over the same services. It does not calculate matchup s
 1. Create an application in the Discord Developer Portal and add a bot user.
 2. Copy the bot token into a local `.env` file. Start from `.env.example`.
 3. Set `DISCORD_BOT_TOKEN`. Leave `DISCORD_GUILD_ID` empty to sync commands globally, or set it to a development server ID so commands show up faster.
-4. `DISCORD_ADMIN_ROLE_ID` is optional. When it is set, members with that role are treated as admins. The role ID stays in the Discord adapter.
+4. `DISCORD_ADMIN_ROLE_ID` is optional. When it is set, members with that role are treated as admins. The role ID stays in the Discord adapter. `WEB_APP_BASE_URL` is the public Streamlit address used by `/outlook`. Leave it empty until the site has an address.
 5. Invite the bot with the `bot` and `applications.commands` scopes. It does not need administrator permission.
 6. Install the Discord packages and start the bot from the project root:
 
@@ -96,6 +147,6 @@ python -m interfaces.discord.bot
 ```
 
 7. In the server, run `/system ping`. The reply is `Bot is online.`
-8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate. `/matchup opportunities` is the mixed board. `/matchup opportunities metric:receptions top:10` keeps receptions and includes every position configured for that stat. `/matchup game team:MIA` lists the HOT and WARM spots for both offenses in Miami's game. `/matchup stats team:CHI` ranks every configured stat for Chicago's offense.
+8. Run `/matchup best` and choose a position. The bot defers, calls the existing matchup service, and replies with the current slate. `/matchup opportunities` is the mixed board. `/matchup opportunities metric:receptions top:10` keeps receptions and includes every position configured for that stat. `/matchup game team:MIA` lists the HOT and WARM spots for both offenses in Miami's game. `/matchup slate` lists those spots for every game. `/matchup stats team:CHI` ranks every configured stat for Chicago's offense. `/outlook weekly`, `/outlook game team:DET`, and `/outlook rankings position:WR` return links to the web app.
 
 If `DISCORD_BOT_TOKEN` is missing, the process stops with `DISCORD_BOT_TOKEN is not configured.` The token is not written to the log.

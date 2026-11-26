@@ -1,8 +1,9 @@
 import pandas as pd
 
+from database.abbreviations import canonical_abbr
 from database.analysis import analyze_snapshot
 from database.matchups import _weekly_sides
-from database.queries import league_table, matchup_context, season_status, team_on_bye
+from database.queries import defense_snapshot_for, league_table, matchup_context, season_status, team_on_bye
 
 POSITIONS = ("qb", "rb", "wr", "te")
 
@@ -21,26 +22,32 @@ def _rank(records, descending):
     return ranked
 
 
-def _fpts_rows():
-    season, defense_week, note = matchup_context()
-    slate_week = season_status()["current_week"]
+def _fpts_rows(season=None, week=None):
+    requested = season is not None and week is not None
+    if requested:
+        season, defense_week, note = defense_snapshot_for(season, week)
+        slate_week = int(week)
+    else:
+        season, defense_week, note = matchup_context()
+        slate_week = season_status()["current_week"]
     if defense_week is None:
         scored = analyze_snapshot(pd.DataFrame())
     else:
         scored = analyze_snapshot(league_table(season, defense_week))
     if not scored.empty:
         scored = scored.loc[scored["metric"] == "FPTS"]
-    return season, defense_week, slate_week, note, scored
+    return season, defense_week, slate_week, note, scored, requested
 
 
-def _records(scored, season, defense_week, slate_week, note, position=None):
+def _records(scored, season, defense_week, slate_week, note, position=None, requested=False):
     lookup = {
         (row["team_abbr"], row["position"]): row
         for _, row in scored.iterrows()
     }
     positions = (position,) if position else POSITIONS
+    sides = _weekly_sides(season, slate_week) if requested else _weekly_sides()
     records = []
-    for pair in _weekly_sides().itertuples(index=False):
+    for pair in sides.itertuples(index=False):
         for pos in positions:
             row = lookup.get((pair.defense, pos))
             if row is None:
@@ -64,24 +71,27 @@ def _records(scored, season, defense_week, slate_week, note, position=None):
     return records
 
 
-def rank_weekly_fantasy_matchups(descending=True):
-    season, defense_week, slate_week, note, scored = _fpts_rows()
-    return _rank(_records(scored, season, defense_week, slate_week, note), descending)
+def rank_weekly_fantasy_matchups(descending=True, season=None, week=None):
+    season, defense_week, slate_week, note, scored, requested = _fpts_rows(season, week)
+    return _rank(
+        _records(scored, season, defense_week, slate_week, note, requested=requested),
+        descending,
+    )
 
 
-def rank_weekly_fantasy_position(position):
+def rank_weekly_fantasy_position(position, season=None, week=None):
     position = position.lower()
     if position not in POSITIONS:
         raise ValueError(f"unknown position {position}")
-    season, defense_week, slate_week, note, scored = _fpts_rows()
+    season, defense_week, slate_week, note, scored, requested = _fpts_rows(season, week)
     return _rank(
-        _records(scored, season, defense_week, slate_week, note, position),
+        _records(scored, season, defense_week, slate_week, note, position, requested),
         descending=True,
     )
 
 
 def get_fantasy_offense_matchup(team, position):
-    team = team.upper()
+    team = canonical_abbr(team)
     position = position.lower()
     if position not in POSITIONS:
         raise ValueError(f"unknown position {position}")

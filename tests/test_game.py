@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from database.matchups import game_hot_spots, rank_weekly_opportunities, slate_hot_spots
 from database.queries import current_schedule, known_team_abbrs, team_on_bye
@@ -52,8 +53,12 @@ class GameHotSpotTests(unittest.TestCase):
         self.assertIn("WARM", embed.description)
 
     def test_bye_and_unknown_team(self):
-        bye = next(team for team in sorted(known_team_abbrs()) if team_on_bye(team))
-        result = get_game_hot_spots(bye, context=RequestContext(caller_id="test"))
+        byes = [team for team in sorted(known_team_abbrs()) if team_on_bye(team)]
+        if byes:
+            result = get_game_hot_spots(byes[0], context=RequestContext(caller_id="test"))
+        else:
+            with patch("database.matchups.team_on_bye", return_value=True):
+                result = get_game_hot_spots("MIA", context=RequestContext(caller_id="test"))
         self.assertFalse(result["success"])
         self.assertEqual(result["error"]["code"], "TEAM_NOT_PLAYING")
         unknown = get_game_hot_spots("DTT", context=RequestContext(caller_id="test"))

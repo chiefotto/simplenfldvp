@@ -8,6 +8,7 @@ from interfaces.discord.commands.admin import Admin
 from interfaces.discord.commands.fantasy import Fantasy
 from interfaces.discord.commands.help import register_help
 from interfaces.discord.commands.matchup import Matchup
+from interfaces.discord.commands.outlook import Outlook
 from interfaces.discord.commands.system import System
 from interfaces.discord.commands.touchdown import Touchdown
 from interfaces.discord.config import load_config
@@ -24,6 +25,7 @@ class DvpBot(discord.Client):
     async def setup_hook(self):
         self.tree.add_command(System())
         self.tree.add_command(Matchup(self.config))
+        self.tree.add_command(Outlook(self.config))
         self.tree.add_command(Fantasy(self.config))
         self.tree.add_command(Admin(self.config))
         self.tree.add_command(Touchdown(self.config))

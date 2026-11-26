@@ -2,8 +2,18 @@ import sqlite3
 
 import pandas as pd
 
+from database.abbreviations import canonical_abbr
 from database.analysis import analyze_snapshot
-from database.queries import DB_PATH, current_schedule, league_table, matchup_context, season_status, team_on_bye
+from database.queries import (
+    DB_PATH,
+    current_schedule,
+    defense_snapshot_for,
+    league_table,
+    matchup_context,
+    season_status,
+    team_on_bye,
+    week_games,
+)
 
 POSITION_METRICS = {
     "qb": ["Passing_Yd", "Passing_TD", "Rushing_Yd", "Rushing_TD"],
@@ -72,30 +82,37 @@ def _sort_metrics(rows):
     return sorted(rows, key=lambda metric: metric["z_score"], reverse=True)
 
 
-def _snapshot(position):
-    season, defense_week, note = matchup_context()
-    status = season_status()
+def _plain(value):
+    if value is None or pd.isna(value):
+        return None
+    return value
+
+
+def _snapshot(position, season=None, week=None):
+    if season is None and week is None:
+        season, defense_week, note = matchup_context()
+        slate_week = season_status()["current_week"]
+    else:
+        season, defense_week, note = defense_snapshot_for(season, week)
+        slate_week = None if week is None else int(week)
     if defense_week is None:
-        return season, None, status["current_week"], note, analyze_snapshot(pd.DataFrame(), position)
+        return season, None, slate_week, note, analyze_snapshot(pd.DataFrame(), position)
     scored = analyze_snapshot(league_table(season, defense_week), position)
-    return season, defense_week, status["current_week"], note, scored
+    return season, defense_week, slate_week, note, scored
 
 
-def _weekly_sides():
-    status = season_status()
-    if status["current_week"] is None:
-        return pd.DataFrame(columns=["offense", "defense"])
-    with sqlite3.connect(DB_PATH) as conn:
-        schedule_season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
-        games = pd.read_sql(
-            """
-            SELECT away_team, home_team
-            FROM schedule
-            WHERE season = ? AND week = ?
-            """,
-            conn,
-            params=(schedule_season, status["current_week"]),
-        )
+def _weekly_sides(season=None, week=None):
+    columns = ["offense", "defense", "game_id", "gameday", "gametime", "away_score", "home_score"]
+    if season is None or week is None:
+        status = season_status()
+        if status["current_week"] is None:
+            return pd.DataFrame(columns=columns)
+        with sqlite3.connect(DB_PATH) as conn:
+            season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
+        week = status["current_week"]
+    games = week_games(season, week)
+    if games.empty:
+        return pd.DataFrame(columns=columns)
     return pd.concat(
         [
             games.rename(columns={"away_team": "offense", "home_team": "defense"}),
@@ -132,9 +149,15 @@ def _configured_scores(scored):
     return scored.loc[mask]
 
 
-def rank_weekly_opportunities():
-    season, defense_week, note = matchup_context()
-    slate_week = season_status()["current_week"]
+def rank_weekly_opportunities(season=None, week=None):
+    if season is None and week is None:
+        season, defense_week, note = matchup_context()
+        slate_week = season_status()["current_week"]
+        sides = _weekly_sides()
+    else:
+        season, defense_week, note = defense_snapshot_for(season, week)
+        slate_week = None if week is None else int(week)
+        sides = _weekly_sides(season, week)
     if defense_week is None:
         scored = analyze_snapshot(pd.DataFrame())
     else:
@@ -145,7 +168,7 @@ def rank_weekly_opportunities():
         for _, row in scored.iterrows()
     }
     records = []
-    for pair in _weekly_sides().itertuples(index=False):
+    for pair in sides.itertuples(index=False):
         for position, metrics in POSITION_METRICS.items():
             for metric_name in metrics:
                 row = lookup.get((pair.defense, position, metric_name))
@@ -153,6 +176,11 @@ def rank_weekly_opportunities():
                     continue
                 z_score = float(row["z_score"])
                 records.append({
+                    "game_id": _plain(pair.game_id),
+                    "gameday": _plain(pair.gameday),
+                    "gametime": _plain(pair.gametime),
+                    "away_score": _plain(pair.away_score),
+                    "home_score": _plain(pair.home_score),
                     "offense": pair.offense,
                     "defense": pair.defense,
                     "position": position,
@@ -217,14 +245,17 @@ def metric_opportunities(alias):
     return _assign_ranks(records, "opportunity_score", "weekly_rank")
 
 
-def rank_weekly_matchups(position):
+def rank_weekly_matchups(position, season=None, week=None):
     position = position.lower()
-    season, defense_week, slate_week, note, scored = _snapshot(position)
+    requested = season is not None and week is not None
+    season, defense_week, slate_week, note, scored = _snapshot(position, season, week)
     names = POSITION_METRICS[position]
     records = []
-    for pair in _weekly_sides().itertuples(index=False):
+    sides = _weekly_sides(season, slate_week) if requested else _weekly_sides()
+    for pair in sides.itertuples(index=False):
         metrics = [metric for metric in _defense_metrics(scored, pair.defense, names)]
         records.append({
+            "game_id": _plain(getattr(pair, "game_id", None)),
             "offense": pair.offense,
             "defense": pair.defense,
             "position": position,
@@ -267,7 +298,7 @@ def rank_weekly_metric(position, alias):
 
 def get_defense_profile(team, position):
     position = position.lower()
-    team = team.upper()
+    team = canonical_abbr(team)
     season, defense_week, _slate_week, note, scored = _snapshot(position)
     names = [*POSITION_METRICS[position], "FPTS"]
     rows = scored.loc[(scored["team_abbr"] == team) & (scored["metric"].isin(names))]
@@ -287,7 +318,7 @@ def get_defense_profile(team, position):
 
 
 def get_offense_matchup(team, position):
-    team = team.upper()
+    team = canonical_abbr(team)
     position = position.lower()
     if team_on_bye(team):
         return {"bye": True, "offense": team, "position": position}
@@ -315,7 +346,7 @@ def _game_sides(records, offense, defense):
 
 
 def game_hot_spots(team):
-    team = team.upper()
+    team = canonical_abbr(team)
     if team_on_bye(team):
         return {"bye": True, "offense": team}
     pair = next((row for row in _weekly_sides().itertuples(index=False) if row.offense == team), None)
@@ -343,7 +374,7 @@ def slate_hot_spots():
 
 
 def offense_stat_rankings(team):
-    team = team.upper()
+    team = canonical_abbr(team)
     if team_on_bye(team):
         return {"bye": True, "offense": team}
     pair = next((row for row in _weekly_sides().itertuples(index=False) if row.offense == team), None)

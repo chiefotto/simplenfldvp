@@ -25,12 +25,16 @@ SLASH_EXAMPLES = {
     "touchdown offense": "/touchdown offense team:MIA",
     "touchdown passing": "/touchdown passing",
     "admin update": "/admin update",
+    "outlook weekly": "/outlook weekly",
+    "outlook game": "/outlook game team:DET",
+    "outlook rankings": "/outlook rankings position:WR",
 }
 
 GROUPS = (
     ("Matchup", "matchup", NOTES + "\n\n/system ping — Check that the bot is online."),
     ("Fantasy", "fantasy", "Fantasy commands are not player start or sit advice."),
     ("Touchdown", "touchdown", "Touchdown commands are not a player touchdown probability."),
+    ("Outlook", "outlook", "Outlook commands open the web app. They are not start/sit advice."),
     ("Admin", "admin", "Admin commands require the configured admin role."),
 )
 

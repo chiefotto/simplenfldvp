@@ -1,3 +1,4 @@
+from database.abbreviations import canonical_abbr
 from database.matchups import METRIC_ALIASES, POSITION_METRICS
 from database.queries import known_team_abbrs
 from services.errors import AppError
@@ -143,6 +144,37 @@ COMMANDS = [
         "access": "PUBLIC",
     },
     {
+        "name": "outlook weekly",
+        "description": "Link to the weekly outlook page.",
+        "parameters": [
+            {"name": "season", "required": False, "description": "Optional season."},
+            {"name": "week", "required": False, "description": "Optional week."},
+        ],
+        "example": "outlook weekly",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "outlook game",
+        "description": "Link to one team's game outlook.",
+        "parameters": [
+            {"name": "team", "required": True, "description": "Either team in the game."},
+            {"name": "season", "required": False, "description": "Optional season."},
+            {"name": "week", "required": False, "description": "Optional week."},
+        ],
+        "example": "outlook game det",
+        "access": "PUBLIC",
+    },
+    {
+        "name": "outlook rankings",
+        "description": "Link to the rankings page for a position or stat.",
+        "parameters": [
+            {"name": "position", "required": False, "description": "Optional qb, rb, wr, or te."},
+            {"name": "metric", "required": False, "description": "Optional stat alias."},
+        ],
+        "example": "outlook rankings wr",
+        "access": "PUBLIC",
+    },
+    {
         "name": "admin update",
         "description": "Download the latest completed defense snapshot and schedule.",
         "parameters": [],
@@ -176,7 +208,7 @@ def normalize_position(position):
 
 
 def normalize_team(team):
-    abbr = str(team).upper()
+    abbr = canonical_abbr(team)
     known = known_team_abbrs()
     if abbr not in known:
         raise AppError(

@@ -118,8 +118,10 @@ class ErrorTests(unittest.TestCase):
 
     def test_help_fits_and_explains_scores(self):
         embeds = format_help()
-        self.assertEqual([embed.title for embed in embeds], ["Matchup", "Fantasy", "Touchdown", "Admin"])
+        self.assertEqual([embed.title for embed in embeds], ["Matchup", "Fantasy", "Touchdown", "Outlook", "Admin"])
         text = "\n".join(embed.description for embed in embeds)
+        self.assertIn("/outlook weekly", text)
+        self.assertIn("/outlook game team:DET", text)
         for embed in embeds:
             self.assertLessEqual(len(embed.description), 4096)
         self.assertIn("HOT", text)

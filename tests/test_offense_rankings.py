@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from database.matchups import offense_stat_rankings, rank_weekly_opportunities
 from database.queries import known_team_abbrs, team_on_bye
@@ -38,8 +39,12 @@ class OffenseRankingTests(unittest.TestCase):
         self.assertIn(result["data"]["spots"][0]["position"].upper(), embed.description)
 
     def test_bye_and_unknown_team(self):
-        bye = next(team for team in sorted(known_team_abbrs()) if team_on_bye(team))
-        result = get_offense_stat_rankings(bye, context=RequestContext(caller_id="test"))
+        byes = [team for team in sorted(known_team_abbrs()) if team_on_bye(team)]
+        if byes:
+            result = get_offense_stat_rankings(byes[0], context=RequestContext(caller_id="test"))
+        else:
+            with patch("database.matchups.team_on_bye", return_value=True):
+                result = get_offense_stat_rankings("CHI", context=RequestContext(caller_id="test"))
         self.assertEqual(result["error"]["code"], "TEAM_NOT_PLAYING")
         unknown = get_offense_stat_rankings("DTT", context=RequestContext(caller_id="test"))
         self.assertEqual(unknown["error"]["code"], "INVALID_TEAM")

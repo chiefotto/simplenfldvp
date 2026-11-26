@@ -2,6 +2,7 @@ import sqlite3
 
 import pandas as pd
 
+from database.abbreviations import canonical_abbr, stored_abbrs
 from database.analysis import RESULT_COLUMNS, analyze_snapshot
 from database.storage import DB_PATH, STAT_COLUMNS
 
@@ -59,22 +60,79 @@ def known_team_abbrs():
     return {row[0] for row in rows}
 
 
-def current_schedule():
-    status = season_status()
-    if status["current_week"] is None:
-        return pd.DataFrame(columns=["gameday", "gametime", "away_team", "away_score", "home_team", "home_score"])
+GAME_COLUMNS = [
+    "game_id", "gameday", "gametime", "away_team", "away_score", "home_team", "home_score",
+]
+
+
+def week_games(season, week):
+    if season is None or week is None:
+        return pd.DataFrame(columns=GAME_COLUMNS)
     with sqlite3.connect(DB_PATH) as conn:
-        season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
-        return pd.read_sql(
+        frame = pd.read_sql(
             """
-            SELECT gameday, gametime, away_team, away_score, home_team, home_score
+            SELECT game_id, gameday, gametime, away_team, away_score, home_team, home_score
             FROM schedule
             WHERE season = ? AND week = ?
             ORDER BY gameday, gametime, away_team
             """,
             conn,
-            params=(season, status["current_week"]),
+            params=(str(season), int(week)),
         )
+    if frame.empty:
+        return pd.DataFrame(columns=GAME_COLUMNS)
+    frame["away_team"] = frame["away_team"].map(canonical_abbr)
+    frame["home_team"] = frame["home_team"].map(canonical_abbr)
+    return frame
+
+
+def current_schedule():
+    status = season_status()
+    columns = ["gameday", "gametime", "away_team", "away_score", "home_team", "home_score"]
+    if status["current_week"] is None:
+        return pd.DataFrame(columns=columns)
+    with sqlite3.connect(DB_PATH) as conn:
+        season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
+    games = week_games(season, status["current_week"])
+    if games.empty:
+        return pd.DataFrame(columns=columns)
+    return games[columns]
+
+
+def defense_snapshot_for(season, game_week):
+    if season is None or game_week is None:
+        return None, None, None
+    target = int(game_week) - 1
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(week) FROM raw_dvp
+            WHERE season = ? AND week <= ?
+            """,
+            (str(season), target),
+        ).fetchone()
+    if row is None or row[0] is None:
+        return str(season), None, None
+    found = int(row[0])
+    if found == target:
+        return str(season), found, None
+    return str(season), found, f"showing week {found} defense for week {int(game_week)} games"
+
+
+def list_seasons_weeks():
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT season, week
+            FROM schedule
+            GROUP BY season, week
+            ORDER BY season, week
+            """
+        ).fetchall()
+    seasons = {}
+    for season, week in rows:
+        seasons.setdefault(str(season), []).append(int(week))
+    return seasons
 
 
 def league_table(season, week):
@@ -146,14 +204,19 @@ def team_on_bye(team):
     status = season_status()
     if status["current_week"] is None:
         return False
+    names = stored_abbrs(team)
+    if not names:
+        return True
+    marks = ", ".join("?" for _ in names)
     with sqlite3.connect(DB_PATH) as conn:
         season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
         found = conn.execute(
-            """
+            f"""
             SELECT 1 FROM schedule
-            WHERE season = ? AND week = ? AND (away_team = ? OR home_team = ?)
+            WHERE season = ? AND week = ?
+              AND (away_team IN ({marks}) OR home_team IN ({marks}))
             """,
-            (season, status["current_week"], team, team),
+            (season, status["current_week"], *names, *names),
         ).fetchone()
     return found is None
 
@@ -165,16 +228,6 @@ def matchups_table(team=None, position=None):
         return pd.DataFrame(columns=["offense", "defense", "position", *STAT_COLUMNS])
     with sqlite3.connect(DB_PATH) as conn:
         schedule_season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
-        games = pd.read_sql(
-            """
-            SELECT away_team, home_team
-            FROM schedule
-            WHERE season = ? AND week = ?
-            ORDER BY gameday, gametime, away_team
-            """,
-            conn,
-            params=(schedule_season, status["current_week"]),
-        )
         defense = pd.read_sql(
             """
             SELECT team_abbr, position, season, week, {stats}
@@ -184,6 +237,7 @@ def matchups_table(team=None, position=None):
             conn,
             params=(str(season), defense_week),
         )
+    games = week_games(schedule_season, status["current_week"])
     if team:
         games = games[(games["away_team"] == team) | (games["home_team"] == team)]
     sides = pd.concat(
@@ -209,16 +263,7 @@ def normalized_matchups(team=None, position=None):
     scored = analyze_snapshot(league_table(season, defense_week), position)
     with sqlite3.connect(DB_PATH) as conn:
         schedule_season = conn.execute("SELECT MAX(season) FROM schedule").fetchone()[0]
-        games = pd.read_sql(
-            """
-            SELECT away_team, home_team
-            FROM schedule
-            WHERE season = ? AND week = ?
-            ORDER BY gameday, gametime, away_team
-            """,
-            conn,
-            params=(schedule_season, status["current_week"]),
-        )
+    games = week_games(schedule_season, status["current_week"])
     if team:
         games = games[(games["away_team"] == team) | (games["home_team"] == team)]
     sides = pd.concat(

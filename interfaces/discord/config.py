@@ -12,6 +12,7 @@ class DiscordConfig:
     token: str
     guild_id: int | None
     admin_role_id: int | None
+    web_app_base_url: str | None
 
 
 def _optional_int(value, name):
@@ -30,8 +31,10 @@ def load_config(environ=None):
     token = environ.get("DISCORD_BOT_TOKEN", "").strip()
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is not configured.")
+    base_url = environ.get("WEB_APP_BASE_URL", "").strip() or None
     return DiscordConfig(
         token=token,
         guild_id=_optional_int(environ.get("DISCORD_GUILD_ID", "").strip(), "DISCORD_GUILD_ID"),
         admin_role_id=_optional_int(environ.get("DISCORD_ADMIN_ROLE_ID", "").strip(), "DISCORD_ADMIN_ROLE_ID"),
+        web_app_base_url=base_url,
     )

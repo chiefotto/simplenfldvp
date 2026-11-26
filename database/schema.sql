@@ -55,3 +55,40 @@ CREATE TABLE IF NOT EXISTS schedule (
     away_score REAL,
     home_score REAL
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+    team_abbr TEXT PRIMARY KEY,
+    team_name TEXT NOT NULL,
+    team_logo_url TEXT,
+    color_primary TEXT,
+    color_secondary TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS players (
+    player_id TEXT PRIMARY KEY,
+    player_name TEXT NOT NULL,
+    position TEXT,
+    headshot_url TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS weekly_rosters (
+    season TEXT NOT NULL,
+    week INTEGER NOT NULL,
+    player_id TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    team TEXT NOT NULL,
+    position TEXT NOT NULL,
+    roster_status TEXT,
+    jersey_number TEXT,
+    headshot_url TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (season, week, player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_rosters_team_position
+    ON weekly_rosters (season, week, team, position);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_season_week
+    ON schedule (season, week);

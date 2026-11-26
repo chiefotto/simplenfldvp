@@ -1,7 +1,12 @@
+import logging
 import sqlite3
 from pathlib import Path
 
 import pandas as pd
+
+from database.abbreviations import canonical_abbr
+
+logger = logging.getLogger("database.storage")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -54,17 +59,86 @@ def save_dvp(df):
         conn.executemany(sql, _rows(df, columns))
 
 
+def _text_column(series):
+    return series.map(lambda value: None if pd.isna(value) else str(value))
+
+
 def save_schedule(df, season):
     initialize_database()
+    if df is None or df.empty:
+        logger.warning("skipping empty schedule for %s", season)
+        return 0
     payload = df.reindex(columns=SCHEDULE_COLUMNS).copy()
     payload["season"] = str(season)
     for column in ("game_id", "game_type", "gameday", "gametime", "away_team", "home_team"):
-        payload[column] = payload[column].map(lambda value: None if pd.isna(value) else str(value))
+        payload[column] = _text_column(payload[column])
+    payload["away_team"] = payload["away_team"].map(canonical_abbr)
+    payload["home_team"] = payload["home_team"].map(canonical_abbr)
+    payload = payload.dropna(subset=["game_id", "away_team", "home_team"])
+    if payload.empty:
+        logger.warning("skipping schedule for %s with no valid games", season)
+        return 0
     placeholders = ", ".join("?" for _ in SCHEDULE_COLUMNS)
     sql = f"INSERT INTO schedule ({', '.join(SCHEDULE_COLUMNS)}) VALUES ({placeholders})"
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM schedule WHERE season = ?", (str(season),))
         conn.executemany(sql, _rows(payload, SCHEDULE_COLUMNS))
+    return len(payload)
+
+
+def _upsert(table, columns, key_columns, df, preserve_nulls=()):
+    initialize_database()
+    if df is None or df.empty:
+        logger.warning("skipping empty %s write", table)
+        return 0
+    payload = df.reindex(columns=columns).copy()
+    payload = payload.dropna(subset=list(key_columns))
+    if payload.empty:
+        logger.warning("skipping %s write with no valid keys", table)
+        return 0
+    assignments = []
+    for name in columns:
+        if name in key_columns:
+            continue
+        if name in preserve_nulls:
+            assignments.append(f"{name}=COALESCE(excluded.{name}, {table}.{name})")
+        else:
+            assignments.append(f"{name}=excluded.{name}")
+    assignments.append("updated_at=CURRENT_TIMESTAMP")
+    conflict = ", ".join(key_columns)
+    sql = f"""
+        INSERT INTO {table} ({", ".join(columns)})
+        VALUES ({", ".join("?" for _ in columns)})
+        ON CONFLICT({conflict}) DO UPDATE SET
+            {", ".join(assignments)}
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executemany(sql, _rows(payload, columns))
+    return len(payload)
+
+
+def save_teams(df):
+    columns = ["team_abbr", "team_name", "team_logo_url", "color_primary", "color_secondary"]
+    return _upsert("teams", columns, ["team_abbr"], df, preserve_nulls=("team_logo_url", "color_primary", "color_secondary"))
+
+
+def save_players(df):
+    columns = ["player_id", "player_name", "position", "headshot_url"]
+    return _upsert("players", columns, ["player_id"], df, preserve_nulls=("position", "headshot_url"))
+
+
+def save_rosters(df):
+    columns = [
+        "season", "week", "player_id", "player_name", "team", "position",
+        "roster_status", "jersey_number", "headshot_url",
+    ]
+    return _upsert(
+        "weekly_rosters",
+        columns,
+        ["season", "week", "player_id"],
+        df,
+        preserve_nulls=("roster_status", "jersey_number", "headshot_url"),
+    )
 
 
 if __name__ == "__main__":

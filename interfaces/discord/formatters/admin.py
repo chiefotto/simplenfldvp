@@ -15,7 +15,8 @@ def format_update(result):
     data = result["data"]
     description = (
         f"Updated {data['season']} week {data['week']}: "
-        f"{data['rows_written']} dvp rows, {data['games_written']} games."
+        f"{data['rows_written']} dvp rows, {data['games_written']} games"
+        + (f", {data['rosters_written']} roster rows." if data.get("rosters_written") is not None else ".")
     )
     return base_embed("Data Update", description, result.get("meta"))
 
