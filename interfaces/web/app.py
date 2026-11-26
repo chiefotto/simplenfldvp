@@ -10,6 +10,7 @@ import streamlit as st
 
 from interfaces.web.pages.game_outlook import page as game_page
 from interfaces.web.pages.overview import page as overview_page
+from interfaces.web.pages.player_opportunities import page as player_page
 from interfaces.web.pages.rankings import page as rankings_page
 from interfaces.web.pages.schedule import page as schedule_page
 from interfaces.web.state import render_sidebar
@@ -23,6 +24,7 @@ def main():
         st.Page(schedule_page, title="Schedule", url_path="schedule"),
         st.Page(game_page, title="Game Outlook", url_path="game"),
         st.Page(rankings_page, title="Rankings", url_path="rankings"),
+        st.Page(player_page, title="Player Opportunities", url_path="players"),
     ]
     st.session_state["slate"] = (season, week, meta)
     st.session_state["pages"] = {page.url_path: page for page in pages}

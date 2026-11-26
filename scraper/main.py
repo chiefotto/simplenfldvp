@@ -65,10 +65,15 @@ def main():
     print(
         f"saved {result['season']} week {result['week']}: "
         f"{result['rows_written']} dvp rows, {result['games_written']} games, "
-        f"{result.get('rosters_written', 0)} roster rows"
+        f"{result.get('rosters_written', 0)} roster rows, "
+        f"{result.get('depth_written', 0)} depth rows, "
+        f"{result.get('stats_written', 0)} player stat rows, "
+        f"{result.get('snaps_written', 0)} snap rows"
     )
     if result.get("roster_warning"):
         print(f"roster warning: {result['roster_warning']}")
+    if result.get("player_warning"):
+        print(f"player warning: {result['player_warning']}")
 
 
 if __name__ == "__main__":

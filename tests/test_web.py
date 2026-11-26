@@ -51,12 +51,22 @@ class WebSmokeTests(unittest.TestCase):
             st.session_state["slate"] = (season, week, meta)
             page()
 
+        def players():
+            import streamlit as st
+            from interfaces.web.pages.player_opportunities import page
+            from interfaces.web.state import render_sidebar
+
+            season, week, meta = render_sidebar()
+            st.session_state["slate"] = (season, week, meta)
+            st.session_state["pages"] = {}
+            page()
+
         overview_app = _run(overview, season="2026", week="11", top="3", metric="receiving_td")
         _clean(overview_app)
         self.assertTrue(overview_app.dataframe)
         self.assertGreater(len(overview_app.dataframe[0].value), 0)
         self.assertLessEqual(len(overview_app.dataframe[0].value), 3)
-        for script in (schedule, rankings):
+        for script in (schedule, rankings, players):
             app = _run(script, season="2026", week="11")
             _clean(app)
             self.assertTrue(app.dataframe or app.markdown or app.caption or app.download_button)
@@ -83,6 +93,9 @@ class WebSmokeTests(unittest.TestCase):
         opened = _run(game_page, season=str(game[1]), week=str(game[2]), game_id=game[0])
         _clean(opened)
         self.assertTrue(opened.header)
+        text = " ".join(getattr(item, "value", "") for item in [*opened.markdown, *opened.caption])
+        self.assertIn("Z-score", text)
+        self.assertTrue(opened.dataframe or opened.caption)
 
     def test_empty_schedule_renders(self):
         def overview():

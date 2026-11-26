@@ -5,7 +5,14 @@ import pandas as pd
 from database.abbreviations import canonical_abbr, unknown_abbreviations
 from database.analysis import IncompleteMetric, analyze_metric, label_z
 from database.storage import STAT_COLUMNS
-from scraper.nfl_data import prepare_players, prepare_rosters, prepare_teams
+from scraper.nfl_data import (
+    prepare_depth_charts,
+    prepare_player_stats,
+    prepare_players,
+    prepare_rosters,
+    prepare_snap_counts,
+    prepare_teams,
+)
 from scraper.schedule import completed_week
 from tests.db_utils import temporary_database
 
@@ -113,6 +120,80 @@ class PersistenceTests(unittest.TestCase):
             with sqlite3.connect(path) as conn:
                 teams = conn.execute("SELECT away_team, home_team FROM schedule").fetchone()
             self.assertEqual(teams, ("LAR", "DET"))
+
+
+class PlayerSourceTests(unittest.TestCase):
+    def test_depth_charts_keep_history_and_map_missing_gsis(self):
+        import sqlite3
+
+        from database.storage import save_depth_charts
+
+        raw = pd.DataFrame([
+            {"dt": "2026-11-20T12:00:00Z", "team": "LA", "player_name": "Rams WR", "gsis_id": "00-rams", "pos_abb": "WR", "pos_slot": 1, "pos_rank": 1},
+            {"dt": "2026-11-25T12:00:00Z", "team": "DET", "player_name": "By ESPN", "gsis_id": None, "espn_id": "99", "pos_abb": "QB", "pos_slot": 1, "pos_rank": 1},
+            {"dt": "2026-11-25T12:00:00Z", "team": "XYZ", "player_name": "Unknown", "gsis_id": "00-x", "pos_abb": "RB", "pos_slot": 1, "pos_rank": 1},
+            {"week": 10, "team": "DET", "player_name": "Legacy", "gsis_id": "00-old", "pos_abb": "TE", "pos_slot": 1, "pos_rank": 1, "season": "2025"},
+        ])
+        with self.assertLogs("database.abbreviations", level="WARNING"):
+            prepared = prepare_depth_charts(raw, {"99": "00-espn"}, season=2026)
+        self.assertEqual(set(prepared["team"]), {"LAR", "DET", "XYZ"})
+        self.assertEqual(prepared.loc[prepared["player_id"] == "00-espn", "season"].iloc[0], "2026")
+        legacy = prepared.loc[prepared["player_id"] == "00-old"].iloc[0]
+        self.assertEqual(legacy["observed_at"], "2025-W10")
+        self.assertEqual(legacy["week"], 10)
+        with temporary_database() as path:
+            self.assertEqual(save_depth_charts(prepared), len(prepared))
+            self.assertEqual(save_depth_charts(prepared), len(prepared))
+            self.assertEqual(save_depth_charts(pd.DataFrame()), 0)
+            later = prepared.loc[prepared["player_id"] == "00-rams"].assign(pos_rank=2, observed_at="2026-11-27T12:00:00Z")
+            save_depth_charts(later)
+            with sqlite3.connect(path) as conn:
+                count = conn.execute("SELECT COUNT(*) FROM depth_charts").fetchone()[0]
+                ranks = conn.execute(
+                    "SELECT observed_at, pos_rank FROM depth_charts WHERE player_id = '00-rams' ORDER BY observed_at"
+                ).fetchall()
+            self.assertEqual(count, len(prepared) + 1)
+            self.assertEqual(ranks, [("2026-11-20T12:00:00Z", 1), ("2026-11-27T12:00:00Z", 2)])
+
+    def test_stats_and_snaps_skip_empty_downloads_and_non_regular_season(self):
+        import sqlite3
+
+        from database.storage import save_player_stats, save_players, save_snap_counts
+
+        stats = prepare_player_stats(pd.DataFrame([
+            {"player_id": "00-1", "player_display_name": "One", "season": 2026, "week": 10, "season_type": "REG", "team": "LA", "position": "QB", "game_id": "g1", "attempts": 20, "passing_tds": 1, "passing_yards": 200, "carries": 2, "rushing_yards": 8, "rushing_tds": 0, "targets": None, "receptions": None, "receiving_yards": None, "receiving_tds": None},
+            {"player_id": "00-1", "player_display_name": "One", "season": 2026, "week": 10, "season_type": "REG", "team": "LAR", "position": "QB", "game_id": "g1b", "attempts": 5, "passing_tds": 1, "passing_yards": 40, "carries": 0, "rushing_yards": 0, "rushing_tds": 0, "targets": 0, "receptions": 0, "receiving_yards": 0, "receiving_tds": 0},
+            {"player_id": "00-1", "player_display_name": "One", "season": 2026, "week": 19, "season_type": "POST", "team": "LAR", "position": "QB", "attempts": 40, "passing_tds": 4},
+            {"player_id": "00-k", "player_display_name": "Kicker", "season": 2026, "week": 10, "season_type": "REG", "team": "DET", "position": "K", "attempts": 0},
+        ]))
+        self.assertEqual(len(stats), 1)
+        self.assertEqual(stats.iloc[0]["team"], "LAR")
+        self.assertEqual(stats.iloc[0]["attempts"], 25)
+        self.assertEqual(stats.iloc[0]["passing_tds"], 2)
+        snaps = prepare_snap_counts(pd.DataFrame([
+            {"season": 2026, "week": 10, "game_type": "REG", "team": "LA", "pfr_player_id": "Rams00", "position": "WR", "offense_snaps": 40, "offense_pct": 0.6, "game_id": "g1"},
+            {"season": 2026, "week": 10, "game_type": "POST", "team": "LAR", "pfr_player_id": "Rams00", "position": "WR", "offense_snaps": 10, "offense_pct": 0.1},
+            {"season": 2026, "week": 10, "game_type": "REG", "team": "DET", "pfr_player_id": "NoMap", "position": "QB", "offense_snaps": 5, "offense_pct": 0.1},
+        ]), {"Rams00": "00-1"})
+        self.assertEqual(len(snaps), 2)
+        self.assertEqual(snaps.loc[snaps["pfr_player_id"] == "Rams00", "player_id"].iloc[0], "00-1")
+        self.assertEqual(snaps.loc[snaps["pfr_player_id"] == "Rams00", "team"].iloc[0], "LAR")
+        self.assertTrue(snaps.loc[snaps["pfr_player_id"] == "NoMap", "player_id"].isna().all())
+        with temporary_database() as path:
+            save_players(pd.DataFrame([
+                {"player_id": "00-1", "player_name": "One", "position": "qb", "headshot_url": None, "pfr_id": "Rams00", "espn_id": "99"},
+            ]))
+            self.assertEqual(save_player_stats(stats), 1)
+            self.assertEqual(save_player_stats(pd.DataFrame()), 0)
+            self.assertEqual(save_snap_counts(snaps), 2)
+            self.assertEqual(save_snap_counts(pd.DataFrame()), 0)
+            with sqlite3.connect(path) as conn:
+                stat_count = conn.execute("SELECT COUNT(*), SUM(attempts) FROM player_weekly_stats").fetchone()
+                snap_count = conn.execute("SELECT COUNT(*) FROM player_snap_counts").fetchone()[0]
+                pfr = conn.execute("SELECT pfr_id FROM players").fetchone()[0]
+            self.assertEqual(stat_count, (1, 25))
+            self.assertEqual(snap_count, 2)
+            self.assertEqual(pfr, "Rams00")
 
 
 class AnalysisRegressionTests(unittest.TestCase):

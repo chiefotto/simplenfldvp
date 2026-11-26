@@ -34,12 +34,20 @@ def _rows(df, columns):
     ]
 
 
+def _ensure_player_id_columns(conn):
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(players)")}
+    for name in ("pfr_id", "espn_id"):
+        if name not in existing:
+            conn.execute(f"ALTER TABLE players ADD COLUMN {name} TEXT")
+
+
 def initialize_database():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(DB_PATH) as conn:
         schema = SCHEMA_PATH.read_text()
         conn.executescript(schema)
+        _ensure_player_id_columns(conn)
 
 
 def save_dvp(df):
@@ -123,8 +131,57 @@ def save_teams(df):
 
 
 def save_players(df):
-    columns = ["player_id", "player_name", "position", "headshot_url"]
-    return _upsert("players", columns, ["player_id"], df, preserve_nulls=("position", "headshot_url"))
+    columns = ["player_id", "player_name", "position", "headshot_url", "pfr_id", "espn_id"]
+    return _upsert(
+        "players",
+        columns,
+        ["player_id"],
+        df,
+        preserve_nulls=("position", "headshot_url", "pfr_id", "espn_id"),
+    )
+
+
+def save_depth_charts(df):
+    columns = [
+        "season", "observed_at", "week", "team", "player_id", "player_name",
+        "position", "pos_abb", "pos_slot", "pos_rank",
+    ]
+    return _upsert(
+        "depth_charts",
+        columns,
+        ["season", "observed_at", "team", "player_id", "pos_abb", "pos_slot"],
+        df,
+        preserve_nulls=("player_name", "week"),
+    )
+
+
+def save_player_stats(df):
+    columns = [
+        "season", "week", "player_id", "player_name", "team", "position", "game_id",
+        "attempts", "passing_yards", "passing_tds", "carries", "rushing_yards", "rushing_tds",
+        "targets", "receptions", "receiving_yards", "receiving_tds",
+    ]
+    return _upsert(
+        "player_weekly_stats",
+        columns,
+        ["season", "week", "player_id"],
+        df,
+        preserve_nulls=("player_name", "position", "game_id"),
+    )
+
+
+def save_snap_counts(df):
+    columns = [
+        "season", "week", "team", "pfr_player_id", "player_id", "game_id",
+        "position", "offense_snaps", "offense_pct",
+    ]
+    return _upsert(
+        "player_snap_counts",
+        columns,
+        ["season", "week", "team", "pfr_player_id"],
+        df,
+        preserve_nulls=("player_id", "game_id", "position"),
+    )
 
 
 def save_rosters(df):

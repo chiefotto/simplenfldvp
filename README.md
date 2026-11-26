@@ -14,19 +14,22 @@ python -m interfaces.discord.bot
 streamlit run interfaces/web/app.py
 ```
 
-`python scraper/main.py` is the admin load. It downloads the CBS position-vs-defense pages for QB, RB, WR, and TE, downloads the regular-season schedule, weekly rosters, player ids, and team metadata through nflreadpy, and writes them into `data/nfl_stats.db`. Running it again updates the same rows in place. An empty roster, player, or team response does not erase the rows already stored. The database upgrade is `database.storage.initialize_database()`, which the scraper and the web app run themselves. Existing defense and schedule rows stay in place.
+`python scraper/main.py` is the admin load. It downloads the CBS position-vs-defense pages for QB, RB, WR, and TE, then the regular-season schedule, weekly rosters, player ids, teams, depth charts, weekly player stats, and snap counts through nflreadpy, and writes them into `data/nfl_stats.db`. Running it again updates the same rows in place. An empty roster, player, depth chart, stat, or snap response does not erase the rows already stored. The database upgrade is `database.storage.initialize_database()`, which the scraper and the web app run themselves. Existing defense and schedule rows stay in place. New tables are created the next time the database opens. `players` gains `pfr_id` and `espn_id` on that same open.
 
 Tests:
 
 ```bash
 python -m unittest discover -s tests
+python -m services.backtest --season 2026 --metric passing_td
 ```
+
+The backtest compares the unadjusted average with both experimental adjustments on completed games. It reports each stat separately. Players who were expected to play and did not are counted apart from the scoring error. Stored defensive snapshots currently start in week 8 of 2026, so earlier weeks are reported as missing rather than filled in. A hosted app only reads the database published to it. Copy or commit `data/nfl_stats.db` after a scrape, then reboot the hosted app.
 
 ## Architecture
 
 CBS pages and nflreadpy both land in SQLite. `database/analysis.py` scores a snapshot. Services in `services/` assemble matchups, fantasy boards, rosters, and outlooks. The CLI, Discord bot, and Streamlit app only present those results.
 
-nflreadpy is the schedule, roster, player, and team client: `load_schedules`, `load_rosters_weekly`, `load_players`, and `load_teams`. The completed-week rule is still local. A week is complete only when every game in that week has both scores.
+nflreadpy 0.1.5 supplies schedules, weekly rosters, players, teams, depth charts, weekly player stats, and snap counts: `load_schedules`, `load_rosters_weekly`, `load_players`, `load_teams`, `load_depth_charts`, `load_player_stats(..., summary_level="week")`, and `load_snap_counts`. A normal refresh loads the selected season only. The completed-week rule is still local. A week is complete only when every game in that week has both scores.
 
 The web app reads the database. It does not call CBS or nflverse while you browse. Cached reads expire after five minutes, so a new scrape shows up without a restart. Discord `/outlook` commands link to that app. Set `WEB_APP_BASE_URL` in `.env` to the address where Streamlit is hosted. If it is empty, the bot says so instead of failing.
 
@@ -34,23 +37,44 @@ A hosted Streamlit process does not see a scrape that wrote a different SQLite f
 
 ## Rosters and players
 
-Players are attached by season, game week, offensive team, and position. A Detroit wide-receiver matchup lists Detroit wide receivers. Names are display text. The stable id is the GSIS id. The list is alphabetical. It is not a usage ranking and it is not a start/sit recommendation. Roster status is shown as stored, including inactive and injured players.
+Players are attached by season, game week, offensive team, and position. Names are display text. The stable id is the GSIS id. Snap counts join through the PFR id on `players`, never through the player name. Depth-chart rows without a GSIS or ESPN id are dropped and counted in the log.
+
+Game Outlook shows a short list beside each stat: one quarterback, two running backs, three wide receivers, and two tight ends. `ACT` and a blank status are eligible. `DEV`, `RES`, `INA`, `CUT`, `RET`, `EXE`, `TRD`, and `RLS` stay out of that list until "All rostered" is selected. `ACT` means the player is on the active roster. It does not mean he is confirmed to play.
+
+The order is the pregame depth chart, then recent usage, then season usage, then name. Rank 1 on more than one wide-receiver slot does not create an official WR1. Those players are ordered by recent targets and labeled "Depth chart + recent usage". If the chart and recent usage point at different players, the charted player stays first and the row says "Role uncertain". A charted player with no prior games stays on the list and gets no estimate. When no chart is available, the role says "Recent usage" or "Role uncertain".
+
+The depth chart used for a game is the latest observation strictly before `schedule.gameday`. A chart with a week and no timestamp uses the latest week before the game. A later chart is never applied to an earlier week.
 
 If that week's roster is missing, the app uses the latest stored roster week at or before the game week and says so. It never uses a later roster for an earlier week. Matchup numbers still appear when the roster is missing.
+
+Per-game averages use the same season and only regular-season games before the selected week. The windows are Season, Last 3, and Last 5. Season is the default. A game counts when offensive snaps are greater than zero. If snap counts are missing, a box-score row counts and the row says participation data is incomplete. A played game with a real zero stays in the average. A missing week is not turned into zero. Bye weeks and missed games are left out. Fewer than three games is a limited sample. No games means a dash and no estimate. Games with a previous team in that season are included and noted. Next week's stats are not.
+
+The adjusted estimate is experimental. It does not change the defensive z-score or the HOT/WARM flag.
+
+```text
+multiplier = 1 + 0.50 × (defense allowed / league average − 1)
+multiplier is capped between 0.50 and 1.50
+adjusted = player average × multiplier
+```
+
+A comparison used by the backtest, and hidden unless "Show z-score comparison" is on, is `1 + 0.15 × z-score` with the same caps. Baseline 2.10, defense 2.10, and league 1.50 produce 2.52 with the default formula. Baseline 1.90 and z-score 2.00 produce 2.47 with the comparison formula. A zero average stays zero. A missing baseline, a missing prior defense snapshot, or a nonpositive league average produces no matchup factor. The estimate needs the outlook snapshot, which is the prior week or the latest earlier week, never a later week.
 
 Team abbreviations follow the CBS table already stored in `raw_dvp`. nflverse calls the Rams `LA`; the database stores `LAR`. Other unrecognized abbreviations are logged and kept.
 
 ## Web pages
 
-`streamlit run interfaces/web/app.py` opens Weekly Overview. Schedule, Game Outlook, and Rankings are the other pages. The season and week stay in the URL:
+`streamlit run interfaces/web/app.py` opens Weekly Overview. Schedule, Game Outlook, Rankings, and Player Opportunities are the other pages. The season and week stay in the URL:
 
 ```text
 /?season=2026&week=12
 /schedule?season=2026&week=12
 /game?season=2026&week=12&game_id=...
 /rankings?season=2026&week=12&position=WR
+/players?season=2026&week=12
 /?season=2026&week=12&metric=receiving_td&top=10
 ```
+
+Player Opportunities is one row per game, player, and stat. It defaults to HOT and WARM relevant players. Filters, the baseline window, and the CSV do not recompute the defensive z-score. Sorting by the estimate or the percent change is available only after one stat is selected. Each row can open that game.
 
 Kickoff times are labeled ET. HOT, WARM, NEUTRAL, COOL, and COLD are written as words. Rankings can be downloaded as CSV after filters. Filters do not recompute z-scores or league ranks.
 

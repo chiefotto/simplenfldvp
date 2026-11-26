@@ -1,6 +1,7 @@
 import streamlit as st
 
 from services.outlook_service import get_game_outlook, get_leaderboards, get_rankings, get_schedule_outlook
+from services.player_service import weekly_player_opportunities
 
 
 @st.cache_data(ttl=300)
@@ -21,3 +22,8 @@ def cached_game(game_id, season, week):
 @st.cache_data(ttl=300)
 def cached_rankings(mode, season, week):
     return get_rankings(mode, season, week)
+
+
+@st.cache_data(ttl=300)
+def cached_player_opportunities(season, week, baseline, scope):
+    return weekly_player_opportunities(season, week, baseline, scope)

@@ -1,8 +1,11 @@
 import streamlit as st
 
-from interfaces.web.components import player_rows, show_result_error, show_warning, signed, spot_block, team_logo
-from interfaces.web.data import cached_game
-from interfaces.web.state import query_value
+from interfaces.web.components import player_estimate_table, show_result_error, show_warning, signed, spot_block, team_logo
+from interfaces.web.data import cached_game, cached_player_opportunities
+from interfaces.web.state import choice, query_value
+
+BASELINES = {"Season": "season", "Last 3": "last3", "Last 5": "last5"}
+SCOPES = {"Relevant": "relevant", "All eligible": "eligible", "All rostered": "all"}
 
 
 def page():
@@ -24,8 +27,12 @@ def page():
         st.caption(game["roster_note"])
     elif not game.get("roster_week"):
         st.caption("Roster information is unavailable. Matchup scores are still shown.")
+    baseline_label = choice("baseline", "Baseline", list(BASELINES), "Season")
+    scope_label = choice("roster", "Players", list(SCOPES), "Relevant")
+    show_z = _estimate_note()
+    players = cached_player_opportunities(str(game["season"]), int(game["week"]), BASELINES[baseline_label], SCOPES[scope_label])
     for side in game["sides"]:
-        _offense(side, teams)
+        _offense(side, teams, players, show_z)
 
 
 def _header(game, teams):
@@ -52,7 +59,19 @@ def _header(game, teams):
         st.markdown(f"**{name}**")
 
 
-def _offense(side, teams):
+def _estimate_note():
+    with st.expander("About this estimate"):
+        st.caption(
+            "The adjusted number is experimental. It is not a projection, a probability, or a start/sit recommendation. "
+            "It multiplies the player's per-game average by a factor from how many of that stat the defense allows "
+            "compared with the league average. The factor starts at half of that difference and is capped between 0.50 and 1.50. "
+            "HOT and COLD still come from the defensive z-score, not from the size of this adjustment. "
+            "Fewer than three games is a limited sample. A dash means there is not enough data."
+        )
+        return st.checkbox("Show z-score comparison", value=False)
+
+
+def _offense(side, teams, players, show_z):
     name = teams.get(side["offense"], {}).get("team_name") or side["offense"]
     st.header(f"{name} offensive outlook")
     st.caption(f"Against the {side['defense']} defense. These are defensive matchup signals, not player projections.")
@@ -64,14 +83,14 @@ def _offense(side, teams):
             st.caption(f"HOT {counts['hot']} · WARM {counts['warm']} · COOL {counts['cool']} · COLD {counts['cold']}")
     favorable, unfavorable, full, positions = st.tabs(["HOT and WARM", "COOL and COLD", "All stats", "Positions"])
     with favorable:
-        _grouped(side, "favorable")
+        _grouped(side, "favorable", players, show_z)
     with unfavorable:
-        _grouped(side, "unfavorable")
+        _grouped(side, "unfavorable", players, show_z)
     with full:
         if not side["spots"]:
             st.caption("No statistical matchup is available.")
         for spot in side["spots"]:
-            spot_block(spot)
+            _spot(side, spot, players, show_z)
     with positions:
         for group in side["positions"]:
             rank = group["matchup_rank"]
@@ -79,17 +98,26 @@ def _offense(side, teams):
             st.markdown(f"**{group['position'].upper()}** · score {signed(group['matchup_score'])} · weekly rank {rank_text}")
 
 
-def _grouped(side, key):
+def _spot(side, spot, players, show_z):
+    spot_block(spot)
+    matched = [
+        row for row in players
+        if row["offense"] == side["offense"] and row["position"] == spot["position"] and row["metric"] == spot["metric"]
+    ]
+    player_estimate_table(matched, show_z)
+
+
+def _grouped(side, key, players, show_z):
     shown = False
     for group in side["positions"]:
         spots = [spot for spot in group["spots"] if spot in side[key] or spot["label"] in _labels(key)]
+        spots.sort(key=lambda spot: spot["z_score"], reverse=key == "favorable")
         if not spots:
             continue
         shown = True
         with st.expander(group["position"].upper(), expanded=True):
-            player_rows(group["players"])
             for spot in spots:
-                spot_block(spot)
+                _spot(side, spot, players, show_z)
     if not shown:
         st.caption("None for this offense.")
 

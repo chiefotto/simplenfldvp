@@ -44,6 +44,20 @@ METRIC_ALIASES = {
     "rushing_attempts": "Rushing_Att",
 }
 
+# nflverse weekly player-stat columns for the configured counting stats.
+# Fantasy points, interceptions, and fumbles stay on the defensive views only.
+PLAYER_STAT_COLUMNS = {
+    "Passing_Yd": "passing_yards",
+    "Passing_TD": "passing_tds",
+    "Rushing_Att": "carries",
+    "Rushing_Yd": "rushing_yards",
+    "Rushing_TD": "rushing_tds",
+    "Receiving_Targt": "targets",
+    "Receiving_Recpt": "receptions",
+    "Receiving_Yd": "receiving_yards",
+    "Receiving_TD": "receiving_tds",
+}
+
 
 def resolve_metric_alias(position, alias):
     position = position.lower()

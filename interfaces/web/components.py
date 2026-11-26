@@ -77,11 +77,55 @@ def player_rows(players):
             st.caption(f"{player['position'].upper()} · {status}")
 
 
+def _number_text(value):
+    if value is None:
+        return "—"
+    try:
+        if value != value:
+            return "—"
+    except TypeError:
+        return "—"
+    return f"{float(value):.2f}"
+
+
+def _percent_text(value):
+    if value is None:
+        return "—"
+    return f"{float(value):+.0f}%"
+
+
+def player_estimate_table(rows, show_z=False):
+    import pandas as pd
+
+    if not rows:
+        st.caption("No relevant players for this stat.")
+        return
+    records = []
+    for row in rows:
+        status = row.get("roster_status") or ""
+        record = {
+            "Player": row.get("player_name") or row.get("player_id"),
+            "Role": " · ".join(part for part in (row.get("role"), row.get("role_source")) if part),
+            "Games": row.get("games") or 0,
+            "Average": _number_text(row.get("player_avg")),
+            "Adj. est.": _number_text(row.get("adjusted")),
+            "Change": _percent_text(row.get("adjustment_pct")),
+        }
+        if show_z:
+            record["Z est."] = _number_text(row.get("z_adjusted"))
+        if status and status not in {"ACT", "ACTIVE"}:
+            record["Status"] = status
+        if row.get("warning"):
+            record["Note"] = row["warning"]
+        records.append(record)
+    st.dataframe(pd.DataFrame(records), hide_index=True, width="stretch")
+
+
 def spot_block(spot):
     from services.outlook_service import metric_label
 
     st.markdown(f"**{spot['position'].upper()} — {metric_label(spot['metric']).title()}**")
-    st.write(
+    st.markdown(
         f"{spot['label']} | Z-score: {signed(spot['z_score'])} | "
         f"Value: {spot['metric_value']:.2f} | League average: {spot['league_mean']:.2f} | "
         f"Defensive rank: {spot['defensive_metric_rank']}"

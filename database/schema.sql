@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS players (
     player_name TEXT NOT NULL,
     position TEXT,
     headshot_url TEXT,
+    pfr_id TEXT,
+    espn_id TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -92,3 +94,63 @@ CREATE INDEX IF NOT EXISTS idx_weekly_rosters_team_position
 
 CREATE INDEX IF NOT EXISTS idx_schedule_season_week
     ON schedule (season, week);
+
+CREATE TABLE IF NOT EXISTS depth_charts (
+    season TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    week INTEGER,
+    team TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    player_name TEXT,
+    position TEXT NOT NULL,
+    pos_abb TEXT NOT NULL,
+    pos_slot INTEGER NOT NULL,
+    pos_rank INTEGER NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (season, observed_at, team, player_id, pos_abb, pos_slot)
+);
+
+CREATE INDEX IF NOT EXISTS idx_depth_charts_team
+    ON depth_charts (season, team, position, observed_at);
+
+CREATE TABLE IF NOT EXISTS player_weekly_stats (
+    season TEXT NOT NULL,
+    week INTEGER NOT NULL,
+    player_id TEXT NOT NULL,
+    player_name TEXT,
+    team TEXT NOT NULL,
+    position TEXT,
+    game_id TEXT,
+    attempts REAL,
+    passing_yards REAL,
+    passing_tds REAL,
+    carries REAL,
+    rushing_yards REAL,
+    rushing_tds REAL,
+    targets REAL,
+    receptions REAL,
+    receiving_yards REAL,
+    receiving_tds REAL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (season, week, player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_player_weekly_stats_team
+    ON player_weekly_stats (season, week, team, position);
+
+CREATE TABLE IF NOT EXISTS player_snap_counts (
+    season TEXT NOT NULL,
+    week INTEGER NOT NULL,
+    team TEXT NOT NULL,
+    pfr_player_id TEXT NOT NULL,
+    player_id TEXT,
+    game_id TEXT,
+    position TEXT,
+    offense_snaps REAL,
+    offense_pct REAL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (season, week, team, pfr_player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_player_snap_counts_player
+    ON player_snap_counts (season, week, player_id);
